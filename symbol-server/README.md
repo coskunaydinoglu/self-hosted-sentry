@@ -55,7 +55,8 @@ target devices; there is no public source for OEM builds.
 is internal to the compose network. Inside it:
 
 ```bash
-docker compose exec symbolicator wget -qO- http://symbol-server/health
+# the symbolicator image has no shell, so probe from the portal on the same network
+docker compose exec symbol-portal python -c "import urllib.request; print(urllib.request.urlopen('http://symbol-server/health').read())"
 docker compose exec symbol-server ls /usr/share/nginx/html | head
 ```
 

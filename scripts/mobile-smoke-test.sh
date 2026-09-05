@@ -19,15 +19,20 @@ bad() {
 }
 
 echo "== compose wiring"
-if $dc config --services 2>/dev/null | grep -qx symbol-portal; then
+# Capture once: piping straight into `grep -q` under pipefail makes compose exit on SIGPIPE.
+services=$($dc config --services 2>/dev/null)
+if grep -qx symbol-portal <<<"$services"; then
   pass "symbol-portal is part of the compose project (COMPOSE_FILE in .env)"
 else
   bad "symbol-portal missing from 'docker compose config --services'; check COMPOSE_FILE in .env"
 fi
-if $dc config --services 2>/dev/null | grep -qx symbol-server; then
+if grep -qx symbol-server <<<"$services"; then
   pass "symbol-server is part of the compose project"
 else
   bad "symbol-server missing from compose project"
+fi
+if [ "$(grep -c '^COMPOSE_PROFILES=' .env 2>/dev/null)" -gt 1 ]; then
+  warn ".env has more than one COMPOSE_PROFILES line; keep only the last one to avoid confusion"
 fi
 
 echo "== symbol portal"
@@ -61,10 +66,12 @@ if [ -n "$PUBLIC_URL" ]; then
 fi
 
 echo "== symbol server"
-if $dc exec -T symbolicator wget -qO- http://symbol-server/health >/dev/null 2>&1; then
-  pass "symbolicator can reach symbol-server"
+# The symbolicator image is distroless (no shell), so probe from the portal, which
+# shares the same compose network and therefore the same reachability.
+if $dc exec -T symbol-portal python -c "import urllib.request; urllib.request.urlopen('http://symbol-server/health', timeout=5)" >/dev/null 2>&1; then
+  pass "symbol-server reachable on the compose network (checked from symbol-portal)"
 else
-  bad "symbolicator cannot reach symbol-server (is it running?)"
+  bad "symbol-server not reachable on the compose network (docker compose ps symbol-server)"
 fi
 count=$(find symbol-server/data -mindepth 2 -type f 2>/dev/null | wc -l | tr -d ' ')
 if [ "${count:-0}" -gt 0 ]; then
