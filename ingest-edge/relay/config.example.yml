@@ -1,0 +1,35 @@
+# Relay in proxy mode: no registration with Sentry needed, no project configs,
+# no PII scrubbing here (the internal Relay does that). It validates the
+# envelope shape, enforces size limits, buffers on disk and forwards.
+relay:
+  mode: proxy
+  # The internal Sentry entry point (its nginx). Route /api/<id>/envelope/ there
+  # through the firewall for this host only.
+  upstream: "https://sentry.internal.example.com/"
+  host: 0.0.0.0
+  port: 3000
+  # If the internal Sentry uses a private CA, mount it and set:
+  # tls_ca_cert: /work/.relay/internal-ca.pem
+logging:
+  level: WARN
+limits:
+  # Mobile stack traces with many frames plus breadcrumbs stay well below these.
+  max_event_size: 1MiB
+  max_attachment_size: 100MiB
+  max_envelope_size: 100MiB
+  max_concurrent_requests: 100
+http:
+  # Give the upstream up to 30s before spooling; the SDKs already retried once.
+  timeout: 30
+  connection_timeout: 5
+  max_retry_interval: 60
+spool:
+  envelopes:
+    path: /work/spool/envelopes
+    max_disk_size: 5GB
+    max_memory_size: 500MB
+health:
+  max_memory_percent: 0.95
+# metrics:
+#   statsd: "10.0.0.5:8125"
+#   prefix: "sentry.relay.edge"

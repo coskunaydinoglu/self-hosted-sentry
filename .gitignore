@@ -89,6 +89,12 @@ data/
 symbol-server/data/*
 !symbol-server/data/.gitkeep
 
+# ingest-edge (DMZ Relay) local files
+ingest-edge/.env
+ingest-edge/relay/config.yml
+ingest-edge/certs/*
+!ingest-edge/certs/.gitkeep
+
 # custom Sentry config
 sentry/sentry.conf.py
 sentry/config.yml

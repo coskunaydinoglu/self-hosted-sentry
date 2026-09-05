@@ -1,0 +1,49 @@
+# Ingest edge: a standalone Relay in proxy mode for the DMZ, with its own TLS
+# terminator. Runs on a separate host from the Sentry stack. Mobile SDKs point
+# at this host (e.g. crash-ingest.example.com); it buffers envelopes on disk and
+# forwards them to the internal Sentry over one outbound HTTPS connection.
+#
+#   cp relay/config.example.yml relay/config.yml   # set relay.upstream
+#   cp .env.example .env                           # set EDGE_HOSTNAME, RELAY_IMAGE
+#   put fullchain.pem + privkey.pem into certs/
+#   docker compose up -d
+services:
+  relay:
+    image: "${RELAY_IMAGE:-ghcr.io/getsentry/relay:nightly}"
+    restart: unless-stopped
+    command: run
+    volumes:
+      - type: bind
+        read_only: true
+        source: ./relay
+        target: /work/.relay
+      - relay-spool:/work/spool
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/relay/healthcheck/live/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+  nginx:
+    image: "nginx:1.31.5-alpine"
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      EDGE_HOSTNAME: "${EDGE_HOSTNAME:-crash-ingest.example.com}"
+    volumes:
+      - type: bind
+        read_only: true
+        source: ./nginx/ingest.conf.template
+        target: /etc/nginx/templates/default.conf.template
+      - type: bind
+        read_only: true
+        source: ./certs
+        target: /etc/nginx/certs
+    depends_on:
+      relay:
+        condition: service_healthy
+volumes:
+  # Envelopes wait here while the internal Sentry is unreachable. Size it for
+  # the longest outage you want to survive (see spool.envelopes.max_disk_size).
+  relay-spool:
