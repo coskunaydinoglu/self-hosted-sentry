@@ -127,7 +127,8 @@ def fake():
 @pytest.fixture
 def client(fake):
     http = httpx.AsyncClient(
-        transport=httpx.MockTransport(fake.handler),
+        # late-bound so tests can swap `fake.handler` after the client exists
+        transport=httpx.MockTransport(lambda request: fake.handler(request)),
         base_url=INTERNAL_URL,
         headers={"Authorization": "Bearer test-token"},
     )

@@ -23,11 +23,15 @@ services:
       SYMBOL_PORTAL_BASIC_AUTH:
       SYMBOL_PORTAL_LOOKBACK_DAYS: "${SYMBOL_PORTAL_LOOKBACK_DAYS:-14}"
       SYMBOL_PORTAL_MAX_EVENTS: "${SYMBOL_PORTAL_MAX_EVENTS:-2000}"
+      SYMBOL_PORTAL_SYMBOLICATOR_URL: "http://symbolicator:3021"
+      SYMBOL_PORTAL_SYSTEM_SYMBOLS_URL: "http://symbol-server/"
     volumes:
       - "sentry-symbol-portal:/data"
     depends_on:
       web:
         condition: service_healthy
+      symbolicator:
+        condition: service_started
     healthcheck:
       interval: "$HEALTHCHECK_INTERVAL"
       timeout: "$HEALTHCHECK_TIMEOUT"

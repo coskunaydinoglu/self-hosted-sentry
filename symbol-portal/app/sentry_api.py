@@ -145,6 +145,11 @@ class SentryClient:
 
     # -- events -----------------------------------------------------------------
 
+    async def get_event_json(self, project: str, event_id: str) -> dict:
+        """Raw stored event (debug_meta, raw stack traces with instruction addresses)."""
+        resp = await self._request("GET", f"/api/0/projects/{self.org}/{project}/events/{event_id}/json/")
+        return resp.json()
+
     async def iter_events(self, project: str, max_events: int) -> AsyncIterator[dict]:
         """Newest-first full events for a project. Callers stop iterating once they are past their window."""
         count = 0
@@ -153,3 +158,35 @@ class SentryClient:
             count += 1
             if count >= max_events:
                 return
+
+
+class SymbolicatorClient:
+    """Direct access to the Symbolicator HTTP API for on-demand re-symbolication."""
+
+    def __init__(self, base_url: str, client: httpx.AsyncClient | None = None):
+        self.base_url = base_url.rstrip("/")
+        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0))
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def symbolicate(self, request: dict, timeout: int = 20, max_polls: int = 30) -> dict:
+        try:
+            resp = await self._client.post(f"{self.base_url}/symbolicate", params={"timeout": timeout}, json=request)
+            resp.raise_for_status()
+            body = resp.json()
+            polls = 0
+            while body.get("status") == "pending" and polls < max_polls:
+                polls += 1
+                resp = await self._client.get(
+                    f"{self.base_url}/requests/{body['request_id']}", params={"timeout": timeout}
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise SentryError(f"Symbolicator {exc.response.status_code}: {exc.response.text[:300]}") from exc
+        except httpx.HTTPError as exc:
+            raise SentryError(f"Symbolicator'a ulaşılamadı: {exc}") from exc
+        if body.get("status") == "pending":
+            raise SentryError("Symbolicator zamanında yanıt vermedi; tekrar deneyin")
+        return body

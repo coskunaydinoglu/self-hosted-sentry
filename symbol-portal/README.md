@@ -13,6 +13,12 @@ teams coming from Countly hit first:
    debug ID Sentry could not resolve, how many crashes it affected, which
    releases, and whether the file has been uploaded since.
 
+3. **On-demand re-symbolication.** Paste an event ID (or click one from the
+   missing-symbols report) and the portal resolves its native stack trace
+   through the stack's own Symbolicator using the project's debug files and the
+   internal OS symbol server. This is Countly's "Symbolicate" button for events
+   that were stored before the symbols arrived. The stored event is not modified.
+
 It talks to Sentry over the public REST API only; nothing in Sentry itself is
 patched, so upstream image upgrades keep working.
 
@@ -46,7 +52,8 @@ place. If you leave the UUID empty the portal derives one from the file content
 and tells you to configure the app with it.
 
 Uploaded symbols apply to **new** crashes. Sentry no longer reprocesses old
-events, so upload before release; the report exists to catch what slipped.
+events, so upload before release; the report exists to catch what slipped and
+the re-symbolication tab shows what an old crash would have looked like.
 
 ## Development
 

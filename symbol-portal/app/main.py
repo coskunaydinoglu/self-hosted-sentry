@@ -18,14 +18,19 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from .config import Settings, load_settings
 from .difs import UnsafeArchive, collect_candidates, safe_filename
 from .missing import collect_missing, parse_date, sort_entries
-from .sentry_api import SentryClient, SentryError
+from .resymbolicate import build_request, native_sources, summarize
+from .sentry_api import SentryClient, SentryError, SymbolicatorClient
 from .uploader import upload_candidates
 
 STATIC_DIR = Path(__file__).parent / "static"
 REPORT_TTL_SECONDS = 300
 
 
-def create_app(settings: Settings | None = None, client: SentryClient | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    client: SentryClient | None = None,
+    symbolicator: SymbolicatorClient | None = None,
+) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -33,10 +38,13 @@ def create_app(settings: Settings | None = None, client: SentryClient | None = N
         yield
         if app.state.client is not None:
             await app.state.client.aclose()
+        if app.state.symbolicator is not None:
+            await app.state.symbolicator.aclose()
 
     app = FastAPI(title="Sentry Symbol Portal", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.settings = settings
     app.state.client = client
+    app.state.symbolicator = symbolicator
     app.state.reports: dict[str, tuple[float, dict]] = {}
     Path(settings.tmp_dir).mkdir(parents=True, exist_ok=True)
 
@@ -49,6 +57,11 @@ def create_app(settings: Settings | None = None, client: SentryClient | None = N
                 rewrite_chunk_url=settings.rewrite_chunk_url,
             )
         return app.state.client
+
+    def get_symbolicator() -> SymbolicatorClient:
+        if app.state.symbolicator is None:
+            app.state.symbolicator = SymbolicatorClient(settings.symbolicator_url)
+        return app.state.symbolicator
 
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
@@ -154,6 +167,37 @@ def create_app(settings: Settings | None = None, client: SentryClient | None = N
         }
         app.state.reports[project] = (time.time(), report)
         return report
+
+    @app.post("/api/projects/{project}/events/{event_id}/symbolicate")
+    async def symbolicate_event(project: str, event_id: str):
+        """Re-symbolicate a stored native event on demand; the stored event is left untouched."""
+        client = get_client()
+        event = await client.get_event_json(project, event_id)
+        extra = []
+        if settings.system_symbols_url:
+            extra.append(
+                {
+                    "id": "sentry:internal-system-symbols",
+                    "type": "http",
+                    "url": settings.system_symbols_url,
+                    "layout": {"type": "unified"},
+                    "filters": {"filetypes": ["mach_code", "mach_debug", "elf_code", "elf_debug"]},
+                }
+            )
+        sources = native_sources(settings.sentry_url, settings.sentry_org, project, settings.sentry_token, extra)
+        request = build_request(event, sources)
+        if request is None:
+            raise HTTPException(
+                422,
+                "Bu event'te native stack trace veya debug image yok. Yalnızca iOS/macOS ve Android NDK "
+                "crash'leri yeniden sembolikleştirilebilir; ProGuard için mapping yüklendikten sonra yeni event bekleyin.",
+            )
+        response = await get_symbolicator().symbolicate(request)
+        summary = summarize(event, response)
+        summary["event_id"] = event_id
+        summary["project"] = project
+        summary["stored_event_unchanged"] = True
+        return summary
 
     return app
 

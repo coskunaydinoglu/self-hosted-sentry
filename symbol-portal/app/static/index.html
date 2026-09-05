@@ -52,6 +52,7 @@
   <nav class="tabs">
     <button data-tab="upload" class="active">Sembol Yükle</button>
     <button data-tab="missing">Eksik Semboller</button>
+    <button data-tab="resym">Yeniden Sembolikleştir</button>
     <button data-tab="files">Yüklü Dosyalar</button>
   </nav>
 
@@ -90,8 +91,21 @@
         </div>
         <button id="refresh-missing" class="ghost">Yenile</button>
       </div>
-      <table id="missing"><thead><tr><th>Debug ID</th><th>Tür</th><th>Image / Modül</th><th>Event</th><th>Sürümler</th><th>Son görülme</th><th>Durum</th></tr></thead><tbody><tr><td colspan="7" class="muted">Rapor yükleniyor…</td></tr></tbody></table>
+      <table id="missing"><thead><tr><th>Debug ID</th><th>Tür</th><th>Image / Modül</th><th>Event</th><th>Sürümler</th><th>Son görülme</th><th>Durum</th><th>Örnek event</th></tr></thead><tbody><tr><td colspan="8" class="muted">Rapor yükleniyor…</td></tr></tbody></table>
       <p class="small muted">Tür: <b>gerekli</b> = uygulamanın kendi kodu, sembol yüklenmeli. <b>opsiyonel</b> = iOS/Android sistem kütüphanesi; self-hosted Sentry'de OS sembolleri ayrıca sağlanmalıdır. <b>proguard</b> = R8 mapping bulunamadı. "Yüklendi" görünen kayıtlar sembol sonradan yüklendiği için eski event'lerde ham kalır; yeni crash'ler çözümlenir.</p>
+    </section>
+  </section>
+
+  <section id="tab-resym" class="tab hidden">
+    <section class="card">
+      <h3 style="margin-top:0">Yeniden sembolikleştir</h3>
+      <p class="small muted" style="margin-top:0">Sembol sonradan yüklendiyse eski event Sentry'de ham kalır. Event ID'sini girin; portal stack trace'i doğrudan Symbolicator ile çözer ve burada gösterir. Saklanan event değişmez. Yalnızca iOS/macOS ve Android NDK crash'leri için.</p>
+      <div class="row" style="margin-top:0">
+        <input id="resym-event" type="text" placeholder="Event ID (32 hex)">
+        <button id="resym-run" class="primary">Çöz</button>
+        <span id="resym-status" class="muted small"></span>
+      </div>
+      <div id="resym-result"></div>
     </section>
   </section>
 
@@ -185,14 +199,38 @@
     if (!project()) return;
     const tbody = $('missing').querySelector('tbody');
     if (cache.missing && !refresh) return;
-    tbody.innerHTML = '<tr><td colspan="7" class="muted">Son event\'ler taranıyor, bu birkaç saniye sürebilir…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="muted">Son event\'ler taranıyor, bu birkaç saniye sürebilir…</td></tr>';
     try {
       const rep = await api('projects/' + encodeURIComponent(project()) + '/missing' + (refresh ? '?refresh=true' : ''));
       cache.missing = rep;
       $('missing-meta').textContent = `Son ${rep.lookback_days} gün · ${rep.events_scanned} event tarandı · ${rep.events_with_errors} event'te işleme hatası · ${fmtDate(rep.generated_at)}`;
-      tbody.innerHTML = rep.entries.length ? rep.entries.map((e) => `<tr><td><code>${esc(e.debug_id)}</code></td><td>${kindBadge(e.kind)}</td><td class="small">${esc(e.image_path || '-')}</td><td>${e.event_count}</td><td class="small">${esc(e.releases.join(', ') || '-')}</td><td class="small">${fmtDate(e.last_seen)}</td><td>${e.uploaded === true ? '<span class="badge b-ok">yüklendi</span>' : e.uploaded === false ? '<span class="badge b-err">hâlâ eksik</span>' : '<span class="badge b-muted">bilinmiyor</span>'}</td></tr>`).join('') : '<tr><td colspan="7" class="muted">Eksik debug dosyası bulunmadı. 🎉</td></tr>';
-    } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="muted">Rapor alınamadı: ${esc(e.message)}</td></tr>`; }
+      tbody.innerHTML = rep.entries.length ? rep.entries.map((e) => `<tr><td><code>${esc(e.debug_id)}</code></td><td>${kindBadge(e.kind)}</td><td class="small">${esc(e.image_path || '-')}</td><td>${e.event_count}</td><td class="small">${esc(e.releases.join(', ') || '-')}</td><td class="small">${fmtDate(e.last_seen)}</td><td>${e.uploaded === true ? '<span class="badge b-ok">yüklendi</span>' : e.uploaded === false ? '<span class="badge b-err">hâlâ eksik</span>' : '<span class="badge b-muted">bilinmiyor</span>'}</td><td>${(e.sample_events || []).map((id) => `<button class="ghost small resym-link" data-id="${esc(id)}" title="Bu event'i yeniden sembolikleştir">${esc(id.slice(0, 8))}…</button>`).join(' ')}</td></tr>`).join('') : '<tr><td colspan="8" class="muted">Eksik debug dosyası bulunmadı. 🎉</td></tr>';
+      tbody.querySelectorAll('.resym-link').forEach((b) => b.addEventListener('click', () => { $('resym-event').value = b.dataset.id; document.querySelector('nav.tabs button[data-tab=resym]').click(); runResym(); }));
+    } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="muted">Rapor alınamadı: ${esc(e.message)}</td></tr>`; }
   }
+
+  // on-demand re-symbolication
+  async function runResym() {
+    const id = $('resym-event').value.trim().replace(/-/g, '');
+    if (!project() || !/^[0-9a-fA-F]{32}$/.test(id)) { $('resym-status').textContent = 'Geçerli bir event ID girin.'; return; }
+    $('resym-status').textContent = 'Symbolicator çözüyor…'; $('resym-result').innerHTML = '';
+    try {
+      const r = await api('projects/' + encodeURIComponent(project()) + '/events/' + id + '/symbolicate', { method: 'POST' });
+      $('resym-status').textContent = `${r.frames_symbolicated}/${r.frames_total} frame çözüldü`;
+      const frameStatus = (s) => s === 'symbolicated' ? 'b-ok' : s === 'missing' ? 'b-err' : 'b-muted';
+      let html = '';
+      if (r.missing_debug_ids.length) html += `<div class="notice">Hâlâ eksik debug dosyaları: ${r.missing_debug_ids.map((d) => '<code>' + esc(d) + '</code>').join(' ')} — bunları "Sembol Yükle" sekmesinden yükleyip tekrar çözün.</div>`;
+      for (const t of r.stacktraces) {
+        html += `<h4 style="margin:14px 0 4px">${esc(t.label)}</h4><table><thead><tr><th>#</th><th>Durum</th><th>Fonksiyon</th><th>Dosya</th><th>Modül</th><th>Adres</th></tr></thead><tbody>` +
+          t.frames.map((f, i) => `<tr><td class="muted">${i}</td><td><span class="badge ${frameStatus(f.status)}">${esc(f.status || '?')}</span></td><td><code>${esc(f.function || '')}</code></td><td class="small">${esc(f.filename || '')}${f.lineno ? ':' + f.lineno : ''}</td><td class="small">${esc(f.package || '')}</td><td><code>${esc(f.instruction_addr || '')}</code></td></tr>`).join('') + '</tbody></table>';
+      }
+      html += `<details style="margin-top:12px"><summary class="small muted">Debug image durumu (${r.modules.length})</summary><table><thead><tr><th>Modül</th><th>Debug ID</th><th>Mimari</th><th>Durum</th></tr></thead><tbody>` +
+        r.modules.map((m) => `<tr><td>${esc(m.code_file || '')}</td><td><code>${esc(m.debug_id || '')}</code></td><td>${esc(m.arch || '')}</td><td><span class="badge ${m.debug_status === 'found' ? 'b-ok' : m.debug_status === 'missing' ? 'b-err' : 'b-muted'}">${esc(m.debug_status || '?')}</span></td></tr>`).join('') + '</tbody></table></details>';
+      $('resym-result').innerHTML = html;
+    } catch (e) { $('resym-status').textContent = ''; $('resym-result').innerHTML = `<div class="notice">${esc(e.message)}</div>`; }
+  }
+  $('resym-run').addEventListener('click', runResym);
+  $('resym-event').addEventListener('keydown', (e) => { if (e.key === 'Enter') runResym(); });
   $('refresh-missing').addEventListener('click', () => loadMissing(true));
 
   // uploaded files

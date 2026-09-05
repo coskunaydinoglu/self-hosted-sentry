@@ -12,6 +12,7 @@ def settings(tmp_path, **overrides):
     base = dict(
         sentry_url="http://web:9000", sentry_org="sentry", sentry_token="test-token", basic_auth=None,
         lookback_days=14, max_events_per_project=100, rewrite_chunk_url=True, tmp_dir=str(tmp_path / "tmp"),
+        symbolicator_url="http://symbolicator:3021", system_symbols_url="http://symbol-server/",
     )
     base.update(overrides)
     return Settings(**base)

@@ -11,7 +11,8 @@ additions live in their own directories and are wired in through
 | No view of which mapping files are missing                  | Symbol Portal › *Eksik Semboller* tab                                                                  |
 | OS frames (UIKit, libsystem, libart) never symbolicated     | [`symbol-server/`](symbol-server/README.md) + `SENTRY_BUILTIN_SOURCES` block in `sentry/sentry.conf.example.py` |
 | Dashboard too thin, 5-second auto-refresh                   | Sentry Issues / Discover / Dashboards; real-time updates are an opt-in toggle                          |
-| Stack traces blocked by WAF, "do we see 100%?"              | [`ingest-canary/`](ingest-canary/README.md) measures delivery through the public path; Release Health sessions give an independent crash count |
+| Stack traces blocked by WAF, "do we see 100%?"              | [`ingest-edge/`](ingest-edge/README.md) puts a proxy-mode Relay on its own hostname in the DMZ with a narrow WAF policy; [`ingest-canary/`](ingest-canary/README.md) measures delivery; Release Health sessions give an independent crash count |
+| Symbols uploaded after the crash leave old events raw        | Symbol Portal › *Yeniden Sembolikleştir* resolves a stored event through Symbolicator on demand                |
 
 ## Roadmap status
 
@@ -19,10 +20,12 @@ additions live in their own directories and are wired in through
 - [x] Faz 2: CI templates (Fastlane, Xcode build phase, Gradle plugin, GitHub Actions, GitLab CI)
 - [x] Faz 2: internal symbol server for iOS/Android OS symbols
 - [x] Faz 1: ingest canary with gzip/plain and WAF-probe modes
+- [x] Faz 1: ingest edge package (DMZ Relay in proxy mode, TLS terminator, WAF checklist)
+- [x] Faz 2: on-demand re-symbolication of stored events in the portal
 - [x] Faz 3: `scripts/bootstrap-mobile-projects.py` creates team, projects, issue alerts, canary metric alert and enables the OS symbol source
 - [x] Post-install verification: `scripts/mobile-smoke-test.sh`
 - [ ] Faz 0: pin images to a CalVer release, HTTPS, mail, S3 filestore, backups, statsd
-- [ ] Faz 1: dedicated ingest hostname and WAF policy, DMZ Relay in proxy mode
+- [ ] Faz 1: deploy `ingest-edge/` on the DMZ host, DNS + certificate, WAF policy applied
 - [ ] Faz 3: Teams/Slack/Jira integrations, alert rules, mobile dashboard template
 - [ ] Faz 4: parallel run with Countly, grouping calibration, cut-over
 

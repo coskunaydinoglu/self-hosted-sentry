@@ -12,6 +12,8 @@ class Settings:
     max_events_per_project: int
     rewrite_chunk_url: bool
     tmp_dir: str
+    symbolicator_url: str
+    system_symbols_url: str
 
     @property
     def configured(self) -> bool:
@@ -31,4 +33,7 @@ def load_settings() -> Settings:
         # Inside the compose network we talk to `web` directly, so rewrite it by default.
         rewrite_chunk_url=env.get("SYMBOL_PORTAL_REWRITE_CHUNK_URL", "1") not in ("0", "false", "no"),
         tmp_dir=env.get("SYMBOL_PORTAL_TMP_DIR", "/tmp/symbol-portal"),
+        symbolicator_url=env.get("SYMBOL_PORTAL_SYMBOLICATOR_URL", "http://symbolicator:3021").rstrip("/"),
+        # Internal OS symbol server (symbol-server/); empty disables the extra source.
+        system_symbols_url=env.get("SYMBOL_PORTAL_SYSTEM_SYMBOLS_URL", "http://symbol-server/"),
     )
