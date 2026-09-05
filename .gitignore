@@ -85,6 +85,10 @@ data/
 .vscode/tags
 .idea
 
+# sorted OS symbols served by symbol-server (rsync target, see symbol-server/README.md)
+symbol-server/data/*
+!symbol-server/data/.gitkeep
+
 # custom Sentry config
 sentry/sentry.conf.py
 sentry/config.yml

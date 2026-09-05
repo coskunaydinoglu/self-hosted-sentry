@@ -6,6 +6,10 @@ logging:
 
 sentry_dsn: null # TODO: Automatically fill this with the internal project DSN
 
+# Allow HTTP symbol sources on private networks, such as the internal
+# symbol-server for iOS/Android OS symbols (see symbol-server/README.md).
+connect_to_reserved_ips: true
+
 # If you have statsd server, you can utilize that to monitor self-hosted Symbolicator.
 metrics:
   statsd: "${SYMBOLICATOR_STATSD_ADDR}" # It is recommended to use IP address instead of domain name

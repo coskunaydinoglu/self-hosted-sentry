@@ -347,6 +347,25 @@ SENTRY_WEB_OPTIONS = {
 SENTRY_OPTIONS["mail.list-namespace"] = env("SENTRY_MAIL_HOST", "localhost")
 SENTRY_OPTIONS["mail.from"] = f"sentry@{SENTRY_OPTIONS['mail.list-namespace']}"
 
+##################
+# System symbols #
+##################
+
+# iOS / Android OS symbols are not reachable from self-hosted installs through
+# Sentry's own buckets. symbol-server/ serves symsorter-sorted OS symbols on the
+# compose network; this registers it as a built-in repository that projects can
+# enable under Project Settings > Debug Files > Built-in Repositories.
+# Requires `connect_to_reserved_ips: true` in symbolicator/config.yml.
+SENTRY_BUILTIN_SOURCES["internal-system-symbols"] = {
+    "type": "http",
+    "id": "sentry:internal-system-symbols",
+    "name": "Internal system symbols (iOS/Android)",
+    "url": "http://symbol-server/",
+    "layout": {"type": "unified"},
+    "filters": {"filetypes": ["mach_code", "mach_debug", "elf_code", "elf_debug"]},
+    "is_public": False,
+}
+
 ############
 # Features #
 ############

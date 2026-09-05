@@ -1,0 +1,66 @@
+// Module-level build.gradle.kts for an Android app reporting to self-hosted Sentry.
+// The Sentry Android Gradle Plugin does three things we used to do by hand with Countly:
+//   1. generates a ProGuard/R8 UUID, injects it into the APK and uploads mapping.txt with it
+//   2. uploads NDK debug symbols (.so with debug info) and native sources
+//   3. uploads Java/Kotlin source context so stack traces show code in the UI
+// URL and token come from sentry.properties (see sentry.properties.example) or env.
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("io.sentry.android.gradle") version "5.8.0"
+}
+
+android {
+    namespace = "com.example.app"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.example.app"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0.0"
+        // Keep native debug info in the merged libs so the plugin can upload it.
+        ndk { debugSymbolLevel = "FULL" }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+}
+
+sentry {
+    org.set(System.getenv("SENTRY_ORG") ?: "sentry")
+    projectName.set(System.getenv("SENTRY_PROJECT") ?: "android-app")
+    authToken.set(System.getenv("SENTRY_AUTH_TOKEN"))
+    // Self-hosted: sentry-cli reads the URL from sentry.properties or SENTRY_URL.
+
+    // R8 / ProGuard
+    includeProguardMapping.set(true)
+    autoUploadProguardMapping.set(true)
+    // Fail the release build when the upload fails instead of shipping unsymbolicated.
+    ignoredBuildTypes.set(setOf("debug"))
+
+    // NDK
+    uploadNativeSymbols.set(true)
+    includeNativeSources.set(true)
+
+    // Source context (Java/Kotlin)
+    includeSourceContext.set(true)
+    additionalSourceDirsForSourceContext.set(setOf("src/main/java", "src/main/kotlin"))
+
+    // Auto-instrumentation and dependency reporting: keep the defaults or trim as needed.
+    autoInstallation { enabled.set(true) }
+    includeDependenciesReport.set(true)
+    tracingInstrumentation { enabled.set(false) } // crash analytics first; enable later for performance
+}
+
+dependencies {
+    implementation("io.sentry:sentry-android:8.15.0")
+    implementation("io.sentry:sentry-android-ndk:8.15.0") // NDK crash capture
+}

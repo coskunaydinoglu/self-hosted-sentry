@@ -1,0 +1,50 @@
+# Symbol upload gate for GitLab CI. Variables SENTRY_URL, SENTRY_ORG, SENTRY_AUTH_TOKEN
+# live in the project's CI/CD settings (masked). Build jobs are placeholders.
+stages: [build, symbols, release]
+
+.sentry-cli:
+  image: getsentry/sentry-cli:2.60.0
+  variables:
+    GIT_STRATEGY: none
+
+build:ios:
+  stage: build
+  tags: [macos]
+  script:
+    - echo "xcodebuild archive ... -archivePath build/MyApp.xcarchive"
+  artifacts:
+    paths: [build/MyApp.xcarchive/dSYMs]
+    expire_in: 1 week
+
+symbols:ios:
+  stage: symbols
+  extends: .sentry-cli
+  needs: [build:ios]
+  variables:
+    SENTRY_PROJECT: ios-app
+  script:
+    - sentry-cli debug-files upload --include-sources --wait build/MyApp.xcarchive/dSYMs
+    - sentry-cli debug-files check build/MyApp.xcarchive/dSYMs/*.app.dSYM
+
+build:android:
+  stage: build
+  image: eclipse-temurin:17-jdk
+  variables:
+    SENTRY_PROJECT: android-app
+  script:
+    # Sentry Gradle Plugin uploads mapping.txt + NDK symbols as part of the build.
+    - ./gradlew assembleRelease --no-daemon
+  artifacts:
+    paths: [app/build/outputs/apk/release/app-release.apk]
+
+symbols:android:
+  stage: symbols
+  extends: .sentry-cli
+  needs: [build:android]
+  variables:
+    SENTRY_PROJECT: android-app
+  script:
+    - apk add --no-cache unzip curl
+    - uuid=$(unzip -p app/build/outputs/apk/release/app-release.apk assets/sentry-debug-meta.properties | sed -n 's/^io.sentry.ProguardUuids=//p')
+    - test -n "$uuid"
+    - curl -fsS -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" "${SENTRY_URL%/}/api/0/projects/$SENTRY_ORG/$SENTRY_PROJECT/files/dsyms/?debug_id=$uuid" | grep -q '"debugId"'

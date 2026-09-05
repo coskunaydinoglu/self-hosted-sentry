@@ -1,0 +1,58 @@
+# Symbol upload gate for GitHub Actions. Drop the `symbols` job into your
+# existing workflow after the build job and pass the archive as an artifact.
+name: mobile-release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  SENTRY_URL: ${{ vars.SENTRY_URL }}          # https://sentry.example.com/
+  SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # ... your xcodebuild archive step producing build/MyApp.xcarchive ...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-dsyms
+          path: build/MyApp.xcarchive/dSYMs
+
+  symbols-ios:
+    needs: build-ios
+    runs-on: ubuntu-latest
+    env:
+      SENTRY_PROJECT: ios-app
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-dsyms
+          path: dsyms
+      - name: Install sentry-cli
+        run: curl -sL https://sentry.io/get-cli/ | SENTRY_CLI_VERSION=2.60.0 bash
+      - name: Upload dSYMs (waits for processing)
+        run: sentry-cli debug-files upload --include-sources --wait dsyms
+      - name: Verify the app binary is symbolicatable
+        run: sentry-cli debug-files check dsyms/*.app.dSYM
+
+  build-android:
+    runs-on: ubuntu-latest
+    env:
+      SENTRY_PROJECT: android-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      # The Sentry Gradle Plugin uploads mapping + NDK symbols during assembleRelease.
+      - run: ./gradlew assembleRelease --no-daemon
+      # Belt and braces: confirm the mapping UUID baked into the APK exists in Sentry.
+      - name: Verify ProGuard mapping reached Sentry
+        run: |
+          uuid=$(unzip -p app/build/outputs/apk/release/app-release.apk assets/sentry-debug-meta.properties | sed -n 's/^io.sentry.ProguardUuids=//p')
+          test -n "$uuid" || { echo "no ProGuard UUID in APK"; exit 1; }
+          curl -fsS -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+            "${SENTRY_URL%/}/api/0/projects/$SENTRY_ORG/$SENTRY_PROJECT/files/dsyms/?debug_id=$uuid" | grep -q '"debugId"'

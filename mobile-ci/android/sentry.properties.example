@@ -1,0 +1,6 @@
+# Project-root sentry.properties, read by sentry-cli (which the Gradle plugin bundles).
+# Do not commit the token: prefer SENTRY_AUTH_TOKEN in CI and keep only the URL here.
+defaults.url=https://sentry.example.com/
+defaults.org=sentry
+defaults.project=android-app
+# auth.token=  (use the SENTRY_AUTH_TOKEN environment variable instead)
