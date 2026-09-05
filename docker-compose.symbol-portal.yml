@@ -1,7 +1,13 @@
-# Symbol Portal: drag-and-drop debug file (dSYM / ProGuard / NDK) uploads and a
-# per-project "missing symbols" report, served by nginx under /symbols/.
+# Mobile crash-analytics add-ons for self-hosted Sentry. Enabled through
+# COMPOSE_FILE in .env; nothing in the upstream docker-compose.yml is modified.
 #
-# Enabled through COMPOSE_FILE in .env (see the "Symbol Portal" section there).
+#   symbol-portal  drag-and-drop debug file (dSYM / ProGuard / NDK) uploads and a
+#                  per-project "missing symbols" report, served by nginx at /symbols/
+#   symbol-server  internal HTTP symbol server for iOS/Android OS symbols
+#                  (symsorter layout), registered in sentry.conf.py as a built-in source
+#   ingest-canary  sends synthetic crashes through the public ingest path and
+#                  verifies they arrive, to measure WAF/proxy losses
+#
 # Requires SYMBOL_PORTAL_SENTRY_TOKEN: an organization auth token or internal
 # integration token with project:read, project:write, event:read and org:read.
 services:
@@ -27,6 +33,45 @@ services:
       timeout: "$HEALTHCHECK_TIMEOUT"
       retries: $HEALTHCHECK_RETRIES
       start_period: "$HEALTHCHECK_START_PERIOD"
+  symbol-server:
+    image: "nginx:1.31.5-alpine"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        read_only: true
+        source: ./symbol-server/nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+      - type: bind
+        read_only: true
+        source: ./symbol-server/data
+        target: /usr/share/nginx/html
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: "$HEALTHCHECK_INTERVAL"
+      timeout: "$HEALTHCHECK_TIMEOUT"
+      retries: $HEALTHCHECK_RETRIES
+      start_period: "$HEALTHCHECK_START_PERIOD"
+  ingest-canary:
+    build:
+      context: ./ingest-canary
+    image: sentry-ingest-canary-local
+    restart: unless-stopped
+    environment:
+      INGEST_CANARY_DSN:
+      INGEST_CANARY_API_URL: "http://web:9000"
+      INGEST_CANARY_PROJECT: "${INGEST_CANARY_PROJECT:-canary}"
+      INGEST_CANARY_INTERVAL: "${INGEST_CANARY_INTERVAL:-300}"
+      INGEST_CANARY_PAYLOAD_KB: "${INGEST_CANARY_PAYLOAD_KB:-256}"
+      INGEST_CANARY_PROBE_STRINGS: "${INGEST_CANARY_PROBE_STRINGS:-0}"
+      SYMBOL_PORTAL_SENTRY_TOKEN:
+      SYMBOL_PORTAL_SENTRY_ORG: "${SYMBOL_PORTAL_SENTRY_ORG:-sentry}"
+      STATSD_ADDR: "${STATSD_ADDR:-}"
+    depends_on:
+      web:
+        condition: service_healthy
+    # Without a DSN the canary exits with a clear message; keep restart from hammering it.
+    profiles:
+      - ingest-canary
   nginx:
     depends_on:
       symbol-portal:
