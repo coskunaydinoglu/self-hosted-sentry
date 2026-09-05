@@ -14,6 +14,10 @@ Creates (unless present):
   * symbol source enables "internal-system-symbols" on the mobile projects when
                   sentry.conf.py registers it (see symbol-server/README.md)
 
+Token: Settings > Developer Settings > Personal Tokens (or a Custom Integration of
+type Internal) with org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write.
+Organization Tokens (org:ci) cannot create teams, projects or alerts.
+
 Notification target is the team's members by e-mail; swap the action for a
 Teams/Slack integration action once the integration is installed.
 """
@@ -192,7 +196,7 @@ def enable_system_symbols(api: Api, org: str, project: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", default=os.environ.get("SENTRY_URL"), help="Sentry base URL (or SENTRY_URL)")
-    parser.add_argument("--token", default=os.environ.get("SENTRY_AUTH_TOKEN"), help="org auth token (or SENTRY_AUTH_TOKEN)")
+    parser.add_argument("--token", default=os.environ.get("SENTRY_AUTH_TOKEN"), help="Personal/Internal Integration token (or SENTRY_AUTH_TOKEN)")
     parser.add_argument("--org", default=os.environ.get("SENTRY_ORG", "sentry"))
     parser.add_argument("--team", default="mobile")
     parser.add_argument("--dry-run", action="store_true", help="print writes instead of performing them")

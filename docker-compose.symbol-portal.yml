@@ -8,8 +8,9 @@
 #   ingest-canary  sends synthetic crashes through the public ingest path and
 #                  verifies they arrive, to measure WAF/proxy losses
 #
-# Requires SYMBOL_PORTAL_SENTRY_TOKEN: an organization auth token or internal
-# integration token with project:read, project:write, event:read and org:read.
+# Requires SYMBOL_PORTAL_SENTRY_TOKEN: a Personal Token or Internal Integration token
+# with org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write
+# (Organization Tokens with the fixed org:ci scope are not sufficient).
 services:
   symbol-portal:
     build:

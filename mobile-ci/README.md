@@ -10,7 +10,7 @@ All of them need two secrets in CI:
 | Variable            | Value                                                      |
 |---------------------|------------------------------------------------------------|
 | `SENTRY_URL`        | `https://<your sentry host>/` (self-hosted, not sentry.io) |
-| `SENTRY_AUTH_TOKEN` | Org auth token with `project:releases`, `project:write`    |
+| `SENTRY_AUTH_TOKEN` | An **Organization Token** (Developer Settings › Organization Tokens) is enough here: uploads only |
 | `SENTRY_ORG`        | Organization slug                                          |
 | `SENTRY_PROJECT`    | Project slug                                               |
 

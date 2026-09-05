@@ -24,8 +24,11 @@ patched, so upstream image upgrades keep working.
 
 ## Enable
 
-1. Create an organization auth token in Sentry (**Settings › Auth Tokens**) with
-   `project:read`, `project:write`, `event:read`, `org:read`.
+1. Create a token in Sentry: **Settings › Developer Settings › Personal Tokens**
+   (or **Custom Integrations › Internal** for a token not tied to a person) with
+   org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write.
+   Organization Tokens carry only the fixed `org:ci` scope, which uploads debug
+   files but cannot read events or manage projects, so they do not work here.
 2. Put it in `.env` as `SYMBOL_PORTAL_SENTRY_TOKEN`, and set
    `SYMBOL_PORTAL_SENTRY_ORG` to your organization slug.
 3. `.env` already adds `docker-compose.symbol-portal.yml` through `COMPOSE_FILE`.

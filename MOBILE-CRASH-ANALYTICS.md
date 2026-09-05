@@ -41,8 +41,10 @@ additions live in their own directories and are wired in through
 
 - Symbols apply to new crashes only. Sentry removed reprocessing, so the CI gate
   (`sentry-cli debug-files check`) is the safety net, the portal the exception path.
-- The portal and canary share one org auth token (`SYMBOL_PORTAL_SENTRY_TOKEN`)
-  with `project:read`, `project:write`, `event:read`, `org:read`. Put `/symbols/`
+- The portal, canary and bootstrap script share one token (`SYMBOL_PORTAL_SENTRY_TOKEN`):
+  Settings › Developer Settings › Personal Tokens, or a Custom Integration of type
+  Internal for production. Scopes: org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write.
+  Organization Tokens (fixed `org:ci` scope) only cover uploads. Put `/symbols/`
   behind the same SSO/VPN as Sentry.
 - `errors-only` profile disables the metrics consumers, which Release Health
   (crash-free sessions/users) needs. Keep `feature-complete` for that metric.
