@@ -19,10 +19,20 @@ additions live in their own directories and are wired in through
 - [x] Faz 2: CI templates (Fastlane, Xcode build phase, Gradle plugin, GitHub Actions, GitLab CI)
 - [x] Faz 2: internal symbol server for iOS/Android OS symbols
 - [x] Faz 1: ingest canary with gzip/plain and WAF-probe modes
+- [x] Faz 3: `scripts/bootstrap-mobile-projects.py` creates team, projects, issue alerts, canary metric alert and enables the OS symbol source
+- [x] Post-install verification: `scripts/mobile-smoke-test.sh`
 - [ ] Faz 0: pin images to a CalVer release, HTTPS, mail, S3 filestore, backups, statsd
 - [ ] Faz 1: dedicated ingest hostname and WAF policy, DMZ Relay in proxy mode
 - [ ] Faz 3: Teams/Slack/Jira integrations, alert rules, mobile dashboard template
 - [ ] Faz 4: parallel run with Countly, grouping calibration, cut-over
+
+## Bring-up order
+
+1. `./install.sh` with `SYMBOL_PORTAL_SENTRY_TOKEN` set in `.env`.
+2. `SENTRY_URL=https://... SENTRY_AUTH_TOKEN=... ./scripts/bootstrap-mobile-projects.py --dry-run`, then without `--dry-run`.
+   It prints the canary DSN; put it in `.env` with the public ingest hostname and add `ingest-canary` to `COMPOSE_PROFILES`.
+3. `./scripts/mobile-smoke-test.sh https://your-sentry-host` and fix anything it reports.
+4. Wire the CI templates from `mobile-ci/` into the app pipelines; sort OS symbols with `symbol-server/import-ios-symbols.sh`.
 
 ## Operating notes
 
