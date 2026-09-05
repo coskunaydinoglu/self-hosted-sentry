@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentry Symbol Portal</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#6c5fc7; --ok:#0f9d58; --warn:#d97706; --err:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:#2b1d4d; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header .spacer { flex:1; }
+  header select { padding:6px 10px; border-radius:6px; border:1px solid #6c5fc7; background:#fff; color:var(--text); min-width:240px; }
+  header label { font-size:13px; opacity:.85; }
+  main { max-width:1100px; margin:24px auto; padding:0 16px; }
+  nav.tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+  nav.tabs button { background:none; border:0; padding:10px 16px; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; font-size:14px; }
+  nav.tabs button.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  section.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
+  .drop { border:2px dashed #c7c9d6; border-radius:10px; padding:36px; text-align:center; color:var(--muted); cursor:pointer; transition:.15s; }
+  .drop.over { border-color:var(--accent); background:#f3f1fb; color:var(--accent); }
+  .drop strong { color:var(--text); display:block; font-size:16px; margin-bottom:4px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  input[type=text] { padding:7px 10px; border:1px solid var(--line); border-radius:6px; min-width:340px; font-family:ui-monospace, monospace; }
+  button.primary { background:var(--accent); color:#fff; border:0; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; }
+  button.primary[disabled] { opacity:.5; cursor:default; }
+  button.ghost { background:none; border:1px solid var(--line); padding:6px 12px; border-radius:6px; cursor:pointer; color:var(--text); }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#f1f2f6; padding:1px 5px; border-radius:4px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+  .b-ok { background:#e6f4ea; color:var(--ok); } .b-warn { background:#fef3c7; color:var(--warn); } .b-err { background:#fee2e2; color:var(--err); } .b-muted { background:#eef0f4; color:var(--muted); }
+  .muted { color:var(--muted); } .small { font-size:12px; }
+  .queue li { display:flex; justify-content:space-between; gap:12px; padding:4px 0; border-bottom:1px dashed var(--line); }
+  .queue { list-style:none; padding:0; margin:12px 0 0; }
+  .notice { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px 14px; border-radius:8px; margin-bottom:16px; }
+  .hidden { display:none !important; }
+  progress { width:100%; height:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sentry Symbol Portal</h1>
+  <span class="spacer"></span>
+  <label for="project">Proje</label>
+  <select id="project"><option value="">Yükleniyor…</option></select>
+</header>
+<main>
+  <div id="notice" class="notice hidden"></div>
+  <nav class="tabs">
+    <button data-tab="upload" class="active">Sembol Yükle</button>
+    <button data-tab="missing">Eksik Semboller</button>
+    <button data-tab="files">Yüklü Dosyalar</button>
+  </nav>
+
+  <section id="tab-upload" class="tab">
+    <section class="card">
+      <div id="drop" class="drop">
+        <strong>dSYM zip, mapping.txt veya .so dosyalarını buraya bırakın</strong>
+        Xcode / App Store Connect'ten indirdiğiniz zip'i olduğu gibi bırakabilirsiniz. Portal arşivi açar, DWARF dosyalarını ayıklar ve Sentry'ye yükler.
+        <div class="small" style="margin-top:8px">ya da tıklayıp seçin</div>
+        <input id="file" type="file" multiple class="hidden">
+      </div>
+      <ul id="queue" class="queue"></ul>
+      <div class="row">
+        <label for="pguuid" class="small">ProGuard / R8 UUID (yalnızca mapping.txt için)</label>
+        <input id="pguuid" type="text" placeholder="Boş bırakılırsa portal üretir; app aynı UUID'yi bildirmeli">
+      </div>
+      <div class="row">
+        <button id="send" class="primary" disabled>Sentry'ye Yükle</button>
+        <button id="clear" class="ghost">Listeyi Temizle</button>
+        <span id="status" class="muted small"></span>
+      </div>
+      <progress id="progress" class="hidden"></progress>
+    </section>
+    <section class="card">
+      <h3 style="margin-top:0">Sonuçlar</h3>
+      <table id="results"><thead><tr><th>Kaynak</th><th>Dosya</th><th>Tür</th><th>Debug ID</th><th>Durum</th><th>Not</th></tr></thead><tbody><tr><td colspan="6" class="muted">Henüz yükleme yapılmadı.</td></tr></tbody></table>
+    </section>
+  </section>
+
+  <section id="tab-missing" class="tab hidden">
+    <section class="card">
+      <div class="row" style="margin-top:0; justify-content:space-between">
+        <div>
+          <h3 style="margin:0">Eksik debug dosyaları</h3>
+          <div id="missing-meta" class="muted small">Son crash'lerde Sentry'nin bulamadığı dSYM / mapping dosyaları.</div>
+        </div>
+        <button id="refresh-missing" class="ghost">Yenile</button>
+      </div>
+      <table id="missing"><thead><tr><th>Debug ID</th><th>Tür</th><th>Image / Modül</th><th>Event</th><th>Sürümler</th><th>Son görülme</th><th>Durum</th></tr></thead><tbody><tr><td colspan="7" class="muted">Rapor yükleniyor…</td></tr></tbody></table>
+      <p class="small muted">Tür: <b>gerekli</b> = uygulamanın kendi kodu, sembol yüklenmeli. <b>opsiyonel</b> = iOS/Android sistem kütüphanesi; self-hosted Sentry'de OS sembolleri ayrıca sağlanmalıdır. <b>proguard</b> = R8 mapping bulunamadı. "Yüklendi" görünen kayıtlar sembol sonradan yüklendiği için eski event'lerde ham kalır; yeni crash'ler çözümlenir.</p>
+    </section>
+  </section>
+
+  <section id="tab-files" class="tab hidden">
+    <section class="card">
+      <div class="row" style="margin-top:0">
+        <input id="files-query" type="text" placeholder="Debug ID veya dosya adı ile ara" style="font-family:inherit">
+        <button id="files-search" class="ghost">Ara</button>
+      </div>
+      <table id="files"><thead><tr><th>Dosya</th><th>Debug ID</th><th>Mimari</th><th>Tür</th><th>Boyut</th><th>Yükleme</th></tr></thead><tbody></tbody></table>
+    </section>
+  </section>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const api = (path, opts) => fetch('api/' + path, opts).then(async (r) => {
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || ('HTTP ' + r.status));
+    return body;
+  });
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' KB' : n + ' B';
+  const fmtDate = (s) => s ? new Date(s).toLocaleString('tr-TR') : '-';
+  let queue = [];
+  const project = () => $('project').value;
+  const notice = (msg) => { const el = $('notice'); el.textContent = msg || ''; el.classList.toggle('hidden', !msg); };
+
+  // tabs
+  document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + b.dataset.tab));
+    if (b.dataset.tab === 'missing') loadMissing(false);
+    if (b.dataset.tab === 'files') loadFiles();
+  }));
+
+  // projects
+  api('health').then((h) => { if (!h.configured) notice('Portal yapılandırılmamış: .env dosyasında SYMBOL_PORTAL_SENTRY_TOKEN tanımlayın.'); });
+  api('projects').then((projects) => {
+    const sel = $('project');
+    sel.innerHTML = projects.map((p) => `<option value="${esc(p.slug)}">${esc(p.name)}${p.platform ? ' · ' + esc(p.platform) : ''}</option>`).join('') || '<option value="">Proje yok</option>';
+    try { const last = localStorage.getItem('symbol-portal.project'); if (last && projects.some((p) => p.slug === last)) sel.value = last; } catch (e) {}
+  }).catch((e) => notice('Projeler alınamadı: ' + e.message));
+  $('project').addEventListener('change', () => { try { localStorage.setItem('symbol-portal.project', project()); } catch (e) {} ; delete cache.missing; });
+
+  // drop zone
+  const drop = $('drop');
+  drop.addEventListener('click', () => $('file').click());
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
+  $('file').addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+  function addFiles(list) { for (const f of list) queue.push(f); renderQueue(); }
+  function renderQueue() {
+    $('queue').innerHTML = queue.map((f, i) => `<li><span>${esc(f.name)} <span class="muted small">${fmtSize(f.size)}</span></span><button class="ghost small" data-i="${i}">kaldır</button></li>`).join('');
+    $('queue').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { queue.splice(+b.dataset.i, 1); renderQueue(); }));
+    $('send').disabled = queue.length === 0;
+  }
+  $('clear').addEventListener('click', () => { queue = []; renderQueue(); });
+
+  // upload
+  $('send').addEventListener('click', () => {
+    if (!project()) return notice('Önce proje seçin.');
+    const fd = new FormData();
+    queue.forEach((f) => fd.append('files', f, f.name));
+    if ($('pguuid').value.trim()) fd.append('proguard_uuid', $('pguuid').value.trim());
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'api/projects/' + encodeURIComponent(project()) + '/upload');
+    $('progress').classList.remove('hidden'); $('progress').removeAttribute('value');
+    $('send').disabled = true; $('status').textContent = 'Yükleniyor…';
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { $('progress').value = e.loaded / e.total; $('status').textContent = e.loaded >= e.total ? 'Sentry işliyor…' : 'Yükleniyor… ' + Math.round(100 * e.loaded / e.total) + '%'; } };
+    xhr.onload = () => {
+      $('progress').classList.add('hidden'); $('status').textContent = '';
+      let body = {}; try { body = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status >= 400) { notice('Yükleme başarısız: ' + (body.detail || xhr.status)); renderQueue(); return; }
+      notice(''); renderResults(body.results || []); queue = []; renderQueue(); delete cache.missing;
+    };
+    xhr.onerror = () => { $('progress').classList.add('hidden'); $('status').textContent = ''; notice('Ağ hatası, yükleme tamamlanamadı.'); renderQueue(); };
+    xhr.send(fd);
+  });
+  const badge = (s) => ({ uploaded: '<span class="badge b-ok">yüklendi</span>', exists: '<span class="badge b-muted">zaten vardı</span>', skipped: '<span class="badge b-warn">atlandı</span>' }[s] || '<span class="badge b-err">hata</span>');
+  function renderResults(rows) {
+    $('results').querySelector('tbody').innerHTML = rows.length ? rows.map((r) => `<tr><td>${esc(r.source)}</td><td>${esc(r.name || '')}${r.object_name && r.object_name !== r.name ? ' <span class="muted small">(' + esc(r.object_name) + ')</span>' : ''}</td><td>${esc(r.kind || '')}${r.cpu_name ? ' · ' + esc(r.cpu_name) : ''}</td><td>${r.debug_id ? '<code>' + esc(r.debug_id) + '</code>' : ''}</td><td>${badge(r.status)}</td><td class="small">${esc(r.message || '')}</td></tr>`).join('') : '<tr><td colspan="6" class="muted">Sonuç yok.</td></tr>';
+  }
+
+  // missing report
+  const cache = {};
+  const kindBadge = (k) => ({ required: '<span class="badge b-err">gerekli</span>', bad: '<span class="badge b-err">bozuk</span>', proguard: '<span class="badge b-warn">proguard</span>', optional: '<span class="badge b-muted">opsiyonel</span>' }[k] || esc(k));
+  async function loadMissing(refresh) {
+    if (!project()) return;
+    const tbody = $('missing').querySelector('tbody');
+    if (cache.missing && !refresh) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">Son event\'ler taranıyor, bu birkaç saniye sürebilir…</td></tr>';
+    try {
+      const rep = await api('projects/' + encodeURIComponent(project()) + '/missing' + (refresh ? '?refresh=true' : ''));
+      cache.missing = rep;
+      $('missing-meta').textContent = `Son ${rep.lookback_days} gün · ${rep.events_scanned} event tarandı · ${rep.events_with_errors} event'te işleme hatası · ${fmtDate(rep.generated_at)}`;
+      tbody.innerHTML = rep.entries.length ? rep.entries.map((e) => `<tr><td><code>${esc(e.debug_id)}</code></td><td>${kindBadge(e.kind)}</td><td class="small">${esc(e.image_path || '-')}</td><td>${e.event_count}</td><td class="small">${esc(e.releases.join(', ') || '-')}</td><td class="small">${fmtDate(e.last_seen)}</td><td>${e.uploaded === true ? '<span class="badge b-ok">yüklendi</span>' : e.uploaded === false ? '<span class="badge b-err">hâlâ eksik</span>' : '<span class="badge b-muted">bilinmiyor</span>'}</td></tr>`).join('') : '<tr><td colspan="7" class="muted">Eksik debug dosyası bulunmadı. 🎉</td></tr>';
+    } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="muted">Rapor alınamadı: ${esc(e.message)}</td></tr>`; }
+  }
+  $('refresh-missing').addEventListener('click', () => loadMissing(true));
+
+  // uploaded files
+  async function loadFiles() {
+    if (!project()) return;
+    const tbody = $('files').querySelector('tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">Yükleniyor…</td></tr>';
+    try {
+      const q = $('files-query').value.trim();
+      const rows = await api('projects/' + encodeURIComponent(project()) + '/debug-files' + (q ? '?query=' + encodeURIComponent(q) : ''));
+      tbody.innerHTML = rows.length ? rows.map((f) => `<tr><td>${esc(f.objectName || '-')}</td><td><code>${esc(f.debugId || f.uuid || '')}</code></td><td>${esc(f.cpuName || '')}</td><td class="small">${esc(f.symbolType || '')} ${esc((f.data && f.data.features || []).join(', '))}</td><td>${fmtSize(f.size || 0)}</td><td class="small">${fmtDate(f.dateCreated)}</td></tr>`).join('') : '<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>';
+    } catch (e) { tbody.innerHTML = `<tr><td colspan="6" class="muted">Liste alınamadı: ${esc(e.message)}</td></tr>`; }
+  }
+  $('files-search').addEventListener('click', loadFiles);
+  $('files-query').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFiles(); });
+})();
+</script>
+</body>
+</html>

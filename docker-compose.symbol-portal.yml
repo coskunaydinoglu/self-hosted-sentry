@@ -1,0 +1,36 @@
+# Symbol Portal: drag-and-drop debug file (dSYM / ProGuard / NDK) uploads and a
+# per-project "missing symbols" report, served by nginx under /symbols/.
+#
+# Enabled through COMPOSE_FILE in .env (see the "Symbol Portal" section there).
+# Requires SYMBOL_PORTAL_SENTRY_TOKEN: an organization auth token or internal
+# integration token with project:read, project:write, event:read and org:read.
+services:
+  symbol-portal:
+    build:
+      context: ./symbol-portal
+    image: sentry-symbol-portal-local
+    restart: unless-stopped
+    environment:
+      SYMBOL_PORTAL_SENTRY_URL: "http://web:9000"
+      SYMBOL_PORTAL_SENTRY_ORG: "${SYMBOL_PORTAL_SENTRY_ORG:-sentry}"
+      SYMBOL_PORTAL_SENTRY_TOKEN:
+      SYMBOL_PORTAL_BASIC_AUTH:
+      SYMBOL_PORTAL_LOOKBACK_DAYS: "${SYMBOL_PORTAL_LOOKBACK_DAYS:-14}"
+      SYMBOL_PORTAL_MAX_EVENTS: "${SYMBOL_PORTAL_MAX_EVENTS:-2000}"
+    volumes:
+      - "sentry-symbol-portal:/data"
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      interval: "$HEALTHCHECK_INTERVAL"
+      timeout: "$HEALTHCHECK_TIMEOUT"
+      retries: $HEALTHCHECK_RETRIES
+      start_period: "$HEALTHCHECK_START_PERIOD"
+  nginx:
+    depends_on:
+      symbol-portal:
+        condition: service_started
+volumes:
+  # Scratch space for uploads being unpacked; safe to delete.
+  sentry-symbol-portal:
