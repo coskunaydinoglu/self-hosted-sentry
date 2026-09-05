@@ -1,0 +1,8 @@
+build/
+.gradle/
+.idea/
+.kotlin/
+local.properties
+sentry.properties
+*.iml
+app/release/

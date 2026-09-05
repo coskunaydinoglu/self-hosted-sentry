@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="Crash Sample"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+
+        <!-- Local self-hosted Sentry. From the emulator, 10.0.2.2 is the host machine. -->
+        <meta-data android:name="io.sentry.dsn" android:value="http://ddd4cec0a3a255cfb01d1edef64597ab@10.0.2.2:9000/3" />
+        <meta-data android:name="io.sentry.environment" android:value="local-test" />
+        <meta-data android:name="io.sentry.debug" android:value="true" />
+        <meta-data android:name="io.sentry.anr.enable" android:value="true" />
+        <meta-data android:name="io.sentry.breadcrumbs.user-interaction" android:value="true" />
+        <!-- Release Health: crash-free sessions/users. -->
+        <meta-data android:name="io.sentry.auto-session-tracking.enable" android:value="true" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
