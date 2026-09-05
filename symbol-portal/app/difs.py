@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import posixpath
+import struct
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -21,6 +22,12 @@ JUNK_SUFFIXES = {".plist", ".yml", ".yaml", ".json", ".xcconfig", ".txt.gz"}
 JUNK_PATH_PARTS = {"__MACOSX", "Relative"}
 
 PROGUARD_NAMESPACE = uuid.UUID("2a34d3f9-7c48-4a5b-9d1e-4f6c7b8a9d0e")
+
+# Universal ("fat") Mach-O containers. Sentry only accepts single-architecture
+# objects, so like sentry-cli we split these into one file per slice.
+FAT_MAGIC = 0xCAFEBABE
+FAT_MAGIC_64 = 0xCAFEBABF
+CPU_NAMES = {0x0000000C: "arm", 0x0100000C: "arm64", 0x0200000C: "arm64_32", 0x00000007: "i386", 0x01000007: "x86_64"}
 
 
 @dataclass
@@ -120,12 +127,64 @@ def extract_archive(archive: Path, dest: Path) -> list[Path]:
     return extracted
 
 
+def fat_slices(path: Path) -> list[tuple[str, int, int]] | None:
+    """(arch, offset, size) for each slice of a universal Mach-O, or None if not fat."""
+    with open(path, "rb") as fh:
+        header = fh.read(8)
+        if len(header) < 8:
+            return None
+        magic, count = struct.unpack(">II", header)
+        # Java class files share the CAFEBABE magic; their next field is a version >= 45.
+        if magic not in (FAT_MAGIC, FAT_MAGIC_64) or count == 0 or count > 32:
+            return None
+        slices = []
+        for _ in range(count):
+            if magic == FAT_MAGIC:
+                cputype, cpusubtype, offset, size, _align = struct.unpack(">IIIII", fh.read(20))
+            else:
+                cputype, cpusubtype, offset, size, _align, _reserved = struct.unpack(">IIQQII", fh.read(32))
+            arch = CPU_NAMES.get(cputype, f"cpu{cputype:#x}")
+            if arch == "arm64" and (cpusubtype & 0xFF) == 2:
+                arch = "arm64e"
+            slices.append((arch, offset, size))
+    total = path.stat().st_size
+    if any(offset + size > total or size == 0 for _, offset, size in slices):
+        return None
+    return slices
+
+
+def split_fat(candidate: Candidate, workdir: Path) -> list[Candidate]:
+    """Replace a fat Mach-O candidate with one candidate per architecture slice."""
+    slices = fat_slices(candidate.path)
+    if not slices:
+        return [candidate]
+    out_dir = workdir / f"slices-{uuid.uuid4().hex}"
+    out_dir.mkdir(parents=True)
+    result = []
+    with open(candidate.path, "rb") as fh:
+        for arch, offset, size in slices:
+            target = out_dir / f"{candidate.name}.{arch}"
+            fh.seek(offset)
+            with open(target, "wb") as out:
+                remaining = size
+                while remaining:
+                    buf = fh.read(min(1024 * 1024, remaining))
+                    if not buf:
+                        break
+                    out.write(buf)
+                    remaining -= len(buf)
+            result.append(
+                Candidate(name=candidate.name, path=target, source=f"{candidate.source} [{arch}]", kind="native", size=size)
+            )
+    return result
+
+
 def collect_candidates(upload_name: str, path: Path, workdir: Path) -> list[Candidate]:
     """Expand one uploaded file into debug-file candidates."""
     if not is_zip(path):
         if path.stat().st_size == 0 or is_junk(upload_name):
             return []
-        return [Candidate.from_path(path, source=upload_name)]
+        return split_fat(Candidate.from_path(path, source=upload_name), workdir)
 
     extract_dir = workdir / f"extract-{uuid.uuid4().hex}"
     extract_dir.mkdir(parents=True)
@@ -138,7 +197,7 @@ def collect_candidates(upload_name: str, path: Path, workdir: Path) -> list[Cand
         if is_zip(extracted):
             candidates.extend(collect_candidates(f"{upload_name}!{rel}", extracted, workdir))
             continue
-        candidates.append(Candidate.from_path(extracted, source=f"{upload_name}!{rel}"))
+        candidates.extend(split_fat(Candidate.from_path(extracted, source=f"{upload_name}!{rel}"), workdir))
     return candidates
 
 
