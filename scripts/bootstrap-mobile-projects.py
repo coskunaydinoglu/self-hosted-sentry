@@ -159,8 +159,18 @@ def ensure_issue_alerts(api: Api, org: str, project: str, team_id: str) -> None:
 
 
 def ensure_canary_alert(api: Api, org: str, project: str, team_id: str) -> None:
+    """Metric alert: canary project silent for 15 minutes. Optional; never fatal."""
     payload = canary_metric_alert_payload(team_id, project)
-    existing = {r["name"] for r in api.get(f"/api/0/organizations/{org}/alert-rules/", default=[], project=project)}
+    manual = (
+        f"    Create it by hand: Alerts > Create Alert > Number of Errors, project {project},\n"
+        f"    'count() is below 1 in 15 minutes', notify team."
+    )
+    try:
+        existing = {r["name"] for r in api.get(f"/api/0/organizations/{org}/alert-rules/", default=[], project=project)}
+    except ApiError as exc:
+        print(f"  ! metric alerts not readable ({exc.status}); token may lack alerts:read/org:read, "
+              f"or metric alerts are unavailable on this instance. Skipped.\n{manual}")
+        return
     if payload["name"] in existing:
         print(f"  metric alert '{payload['name']}': exists")
         return
@@ -168,9 +178,7 @@ def ensure_canary_alert(api: Api, org: str, project: str, team_id: str) -> None:
     try:
         api.post(f"/api/0/organizations/{org}/alert-rules/", payload)
     except ApiError as exc:
-        print(f"  ! could not create the metric alert ({exc}).\n"
-              f"    Create it by hand: Alerts > Create Alert > Number of Errors, project {project},\n"
-              f"    'count() is below 1 in 15 minutes'.")
+        print(f"  ! could not create the metric alert ({exc}).\n{manual}")
 
 
 def enable_system_symbols(api: Api, org: str, project: str) -> None:

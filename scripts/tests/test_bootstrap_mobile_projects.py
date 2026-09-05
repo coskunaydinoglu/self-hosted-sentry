@@ -124,3 +124,17 @@ def test_issue_alert_payload_shape():
     for p in payloads:
         assert p["actions"][0]["targetIdentifier"] == "7" and p["owner"] == "team:7"
         assert p["conditions"][0]["id"].startswith("sentry.rules.conditions.")
+
+
+def test_metric_alert_403_is_not_fatal(capsys):
+    class Forbidden(FakeApi):
+        def request(self, method, path, body=None, params=None):
+            if path.endswith("/alert-rules/"):
+                raise bootstrap.ApiError(403, '{"detail":"You do not have permission"}', method, path)
+            return super().request(method, path, body, params)
+
+    api = Forbidden({"teams": [], "projects": [], "rules": [], "metric_rules": [], "project_details": {}})
+    bootstrap.ensure_canary_alert(api, "sentry", "canary", "42")
+    out = capsys.readouterr().out
+    assert "metric alerts not readable (403)" in out and "Create it by hand" in out
+    assert api.writes == []
