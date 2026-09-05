@@ -47,4 +47,9 @@ Drop `app/build/outputs/mapping/release/mapping.txt` on the portal with that UUI
 in the ProGuard field. The next crash is readable; the old one stays obfuscated,
 which is why the plugin/CI path is the default.
 
+Note: the plugin derives the UUID from the mapping file's content. Rebuilding the
+same code (even after `clean` or a version bump) yields the same UUID, and if
+that mapping was uploaded once, new crashes keep resolving. To get a fresh UUID
+for this exercise, change code that R8 keeps (a method that is actually called).
+
 `--es action` accepts `crash`, `npe`, `handled`, `anr`; the buttons do the same by hand.

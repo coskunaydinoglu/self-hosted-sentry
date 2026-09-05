@@ -25,7 +25,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(48, 48, 48, 48)
         }
         root.addView(TextView(this).apply {
-            text = "Sentry crash sample\nrelease build, R8 enabled"
+            val points = OrderProcessor().loyaltyPoints(Cart(items = 3, coupon = null))
+            text = "Sentry crash sample\nrelease build, R8 enabled\nloyalty points for 3 items: $points"
             textSize = 18f
         })
         root.addView(button("Crash: IllegalStateException in OrderProcessor") { OrderProcessor().checkout(Cart(items = 3, coupon = "BROKEN")) })

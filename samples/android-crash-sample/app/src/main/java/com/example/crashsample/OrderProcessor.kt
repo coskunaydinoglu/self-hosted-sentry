@@ -28,4 +28,7 @@ class OrderProcessor {
     }
 
     private fun applyDiscount(subtotal: Double, discount: Double): Double = subtotal * (1 - discount)
+
+    /** Added in 1.0.1 so the R8 mapping (and therefore its UUID) differs from 1.0.0. */
+    fun loyaltyPoints(cart: Cart): Int = if (cart.items > 2) cart.items * 10 else 0
 }
