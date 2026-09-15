@@ -23,6 +23,9 @@ from .sentry_api import SentryClient, SentryError, SymbolicatorClient
 from .uploader import upload_candidates
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Served without basic auth: the health probe and the nav script that Sentry's own
+# pages load (a basic-auth prompt there would pop up on every Sentry page).
+PUBLIC_PATHS = {"/api/health", "/sentry-nav.js"}
 REPORT_TTL_SECONDS = 300
 
 
@@ -65,7 +68,7 @@ def create_app(
 
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
-        if settings.basic_auth and request.url.path != "/api/health":
+        if settings.basic_auth and request.url.path not in PUBLIC_PATHS:
             header = request.headers.get("Authorization", "")
             ok = False
             if header.startswith("Basic "):
@@ -85,6 +88,14 @@ def create_app(
     @app.get("/", include_in_schema=False)
     async def index():
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/sentry-nav.js", include_in_schema=False)
+    async def sentry_nav():
+        return FileResponse(
+            STATIC_DIR / "sentry-nav.js",
+            media_type="application/javascript",
+            headers={"Cache-Control": "public, max-age=300"},
+        )
 
     @app.get("/api/health")
     async def health():

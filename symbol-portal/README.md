@@ -22,6 +22,16 @@ teams coming from Countly hit first:
 It talks to Sentry over the public REST API only; nothing in Sentry itself is
 patched, so upstream image upgrades keep working.
 
+## Sentry menu entry
+
+nginx injects `/symbols/sentry-nav.js` into Sentry's HTML pages (`sub_filter` in
+`nginx.conf`). The script clones one of Sentry's own primary navigation items and
+turns it into a **Symbols** entry, so it matches the running version's styling
+without patching Sentry. A MutationObserver re-adds it after React re-renders.
+If a Sentry upgrade changes the navigation markup, the entry silently disappears
+and the portal stays reachable at `/symbols/`. The portal header has a link back
+to Sentry.
+
 ## Enable
 
 1. Create a token in Sentry: **Settings › Developer Settings › Personal Tokens**

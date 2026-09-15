@@ -80,3 +80,14 @@ def test_unconfigured_portal_reports_503(tmp_path):
     with TestClient(app) as tc:
         assert tc.get("/api/health").json()["configured"] is False
         assert tc.get("/api/projects").status_code == 503
+
+
+def test_sentry_nav_script_is_public_even_with_basic_auth(tmp_path, fake, client):
+    app = create_app(settings(tmp_path, basic_auth="dev:secret"), client=client)
+    with TestClient(app) as tc:
+        resp = tc.get("/sentry-nav.js")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/javascript")
+        assert 'nav[aria-label="Primary Navigation"]' in resp.text
+        assert "/symbols/" in resp.text
+        assert tc.get("/").status_code == 401  # the portal itself stays protected
