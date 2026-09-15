@@ -238,9 +238,22 @@ fi
 REMOTE
 
 say "Checking HTTPS"
+resolved=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)
+if [[ "$HOST" =~ ^[0-9.]+$ && "$resolved" != "$HOST" ]]; then
+  echo "WARNING: $DOMAIN resolves to '${resolved:-nothing}', not $HOST. Create the A record;"
+  echo "         Caddy keeps retrying the certificate, or re-run this script once DNS is live."
+fi
+restarted=""
 for i in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/auth/login/sentry/" || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$DOMAIN/auth/login/sentry/" || true)
   [[ "$code" == 200 ]] && break
+  # Caddy backs off after a failed ACME attempt (e.g. it tried before DNS existed).
+  # Once the name points here, a restart makes it request the certificate right away.
+  if [[ -z "$restarted" && "$resolved" == "$HOST" && "$i" -ge 3 ]]; then
+    echo "restarting Caddy to retry the certificate now that DNS resolves"
+    remote "$SUDO systemctl restart caddy"
+    restarted=1
+  fi
   sleep 5
 done
 echo "https://$DOMAIN -> HTTP ${code:-none}"
