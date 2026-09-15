@@ -18,6 +18,18 @@ No DNS is required: without `--domain` the script uses
 a Let's Encrypt certificate for it. Pass `--domain` once you have a real name
 pointing at the droplet.
 
+## Create the droplet with doctl
+
+```bash
+doctl auth init                                   # paste the API token in your own terminal
+deploy/digitalocean/create-droplet.sh             # cheapest size meeting 2 vCPU / 8 GB, fra1
+deploy/digitalocean/create-droplet.sh --full      # 4 vCPU / 16 GB for feature-complete
+```
+
+It imports `~/.ssh/id_ed25519.pub` if DigitalOcean does not know it yet, shows
+the chosen size and monthly price, asks for confirmation, creates an Ubuntu
+24.04 droplet tagged `sentry-demo`, waits for SSH and prints the IP.
+
 ## Run
 
 ```bash

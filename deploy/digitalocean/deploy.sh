@@ -61,8 +61,12 @@ say "Checking droplet resources"
 read -r CPUS MEM_MB DISK_GB ARCH < <(remote "echo \$(nproc) \$(free -m | awk '/Mem:/{print \$2}') \$(df -BG --output=avail / | tail -1 | tr -dc 0-9) \$(uname -m)")
 echo "cpus=$CPUS memory=${MEM_MB}MB free_disk=${DISK_GB}GB arch=$ARCH"
 [[ "$ARCH" == x86_64 ]] || { echo "Sentry images need x86_64, got $ARCH" >&2; exit 1; }
-if [[ "$PROFILE" == feature-complete && "$MEM_MB" -lt 15000 ]]; then
-  echo "feature-complete needs a 16 GB droplet (found ${MEM_MB} MB). Resize it or pass --errors-only." >&2
+if [[ "$PROFILE" == feature-complete && ( "$MEM_MB" -lt 15000 || "$CPUS" -lt 4 ) ]]; then
+  echo "feature-complete needs 4 vCPU / 16 GB (found ${CPUS} / ${MEM_MB} MB). Resize or pass --errors-only." >&2
+  exit 1
+fi
+if [[ "$PROFILE" == errors-only && ( "$MEM_MB" -lt 7500 || "$CPUS" -lt 2 ) ]]; then
+  echo "errors-only needs 2 vCPU / 8 GB (found ${CPUS} / ${MEM_MB} MB)." >&2
   exit 1
 fi
 [[ "$DISK_GB" -ge 40 ]] || { echo "need at least 40 GB free disk (found ${DISK_GB} GB)" >&2; exit 1; }
@@ -77,7 +81,8 @@ fi
 systemctl enable --now docker >/dev/null
 if [ "$SSH_USER" != root ]; then usermod -aG docker "$SSH_USER"; fi
 if ! swapon --show | grep -q /swapfile; then
-  fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  # Smaller droplets lean on swap during install (image builds, migrations).
+  fallocate -l $([[ "$MEM_MB" -lt 15000 ]] && echo 8G || echo 4G) /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 sysctl -qw vm.max_map_count=262144
