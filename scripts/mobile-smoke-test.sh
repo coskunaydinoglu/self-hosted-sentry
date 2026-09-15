@@ -46,7 +46,15 @@ else
     bad "portal container not reachable (docker compose ps symbol-portal)"
   fi
 fi
-if $dc exec -T symbol-portal python -c "import urllib.request,json,sys; r=urllib.request.urlopen('http://127.0.0.1:8080/api/projects', timeout=20); sys.exit(0 if r.status==200 else 1)" 2>/dev/null; then
+# Uses the portal's own basic-auth credentials when SYMBOL_PORTAL_BASIC_AUTH is set.
+if $dc exec -T symbol-portal python -c "
+import base64, os, sys, urllib.request
+req = urllib.request.Request('http://127.0.0.1:8080/api/projects')
+auth = os.environ.get('SYMBOL_PORTAL_BASIC_AUTH')
+if auth:
+    req.add_header('Authorization', 'Basic ' + base64.b64encode(auth.encode()).decode())
+sys.exit(0 if urllib.request.urlopen(req, timeout=20).status == 200 else 1)
+" 2>/dev/null; then
   pass "portal can list projects through the Sentry API (token valid)"
 else
   bad "portal cannot reach Sentry API or token lacks org:read/project:read"
