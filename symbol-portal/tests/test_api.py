@@ -90,4 +90,6 @@ def test_sentry_nav_script_is_public_even_with_basic_auth(tmp_path, fake, client
         assert resp.headers["content-type"].startswith("application/javascript")
         assert 'nav[aria-label="Primary Navigation"]' in resp.text
         assert "/symbols/" in resp.text
+        assert 'var DEFAULT_ORG = "sentry";' in resp.text  # org from settings is filled in
+        assert "__SYMBOL_PORTAL_ORG__" not in resp.text
         assert tc.get("/").status_code == 401  # the portal itself stays protected

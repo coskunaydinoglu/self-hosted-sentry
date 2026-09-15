@@ -22,15 +22,23 @@ teams coming from Countly hit first:
 It talks to Sentry over the public REST API only; nothing in Sentry itself is
 patched, so upstream image upgrades keep working.
 
-## Sentry menu entry
+## Inside Sentry's navigation
 
 nginx injects `/symbols/sentry-nav.js` into Sentry's HTML pages (`sub_filter` in
-`nginx.conf`). The script clones one of Sentry's own primary navigation items and
-turns it into a **Symbols** entry, so it matches the running version's styling
-without patching Sentry. A MutationObserver re-adds it after React re-renders.
-If a Sentry upgrade changes the navigation markup, the entry silently disappears
-and the portal stays reachable at `/symbols/`. The portal header has a link back
-to Sentry.
+`nginx.conf`). Sentry itself is not patched. The script:
+
+- adds a **Symbols** entry to the primary navigation by cloning one of Sentry's own
+  items, so it matches the running version's styling;
+- links it to `/organizations/<org>/symbols/`, a URL inside Sentry's app, so the
+  sidebar and layout stay exactly as on any other page;
+- on that URL replaces Sentry's content area with the portal in a frame that
+  grows with its content, and marks the entry as current;
+- drops the "Route not found" error Sentry's frontend SDK would otherwise send to
+  the internal project for that URL.
+
+Opening `/symbols/` directly redirects into that layout. `/symbols/?standalone=1`
+shows the portal on its own. If a Sentry upgrade changes the navigation markup,
+the entry silently disappears and the standalone URL keeps working.
 
 ## Enable
 

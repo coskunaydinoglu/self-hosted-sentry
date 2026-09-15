@@ -89,11 +89,15 @@ def create_app(
     async def index():
         return FileResponse(STATIC_DIR / "index.html")
 
+    nav_script = (STATIC_DIR / "sentry-nav.js").read_text(encoding="utf-8").replace(
+        "__SYMBOL_PORTAL_ORG__", settings.sentry_org.replace("\\", "").replace('"', "")
+    )
+
     @app.get("/sentry-nav.js", include_in_schema=False)
     async def sentry_nav():
-        return FileResponse(
-            STATIC_DIR / "sentry-nav.js",
-            media_type="application/javascript",
+        return Response(
+            content=nav_script,
+            media_type="application/javascript; charset=utf-8",
             headers={"Cache-Control": "public, max-age=300"},
         )
 
