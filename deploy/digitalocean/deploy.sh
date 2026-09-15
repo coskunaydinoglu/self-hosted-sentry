@@ -141,6 +141,12 @@ rm -f .env.committed
 setvar() { if grep -q "^\$1=" .env; then sed -i "s|^\$1=.*|\$1=\$2|" .env; else echo "\$1=\$2" >> .env; fi; }
 setvar SENTRY_BIND 127.0.0.1:9000
 setvar COMPOSE_PROFILES $PROFILE
+# The portal holds a write-capable token and is reachable from the internet here:
+# protect it with basic auth (credentials kept in .portal-basic-auth, root only).
+if [ ! -s .portal-basic-auth ]; then
+  (umask 077; echo "demo:\$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)" > .portal-basic-auth)
+fi
+grep -q '^SYMBOL_PORTAL_BASIC_AUTH=.\+' .env || setvar SYMBOL_PORTAL_BASIC_AUTH "\$(cat .portal-basic-auth)"
 [ -f sentry/config.yml ] || cp sentry/config.example.yml sentry/config.yml
 [ -f sentry/sentry.conf.py ] || cp sentry/sentry.conf.example.py sentry/sentry.conf.py
 [ -f symbolicator/config.yml ] || cp symbolicator/config.example.yml symbolicator/config.yml
@@ -264,10 +270,11 @@ Sentry:        https://$DOMAIN
 Symbols:       https://$DOMAIN/organizations/sentry/symbols/
 Admin e-mail:  $EMAIL
 Password:      ssh $TARGET ${SUDO:+sudo }cat $PASSWORD_FILE
+Portal login:  ssh $TARGET ${SUDO:+sudo }cat $REMOTE_DIR/.portal-basic-auth   (user:password)
 
 Next: create a Personal Token in Sentry and put it on the droplet:
   ssh $TARGET
   cd $REMOTE_DIR && ${SUDO:+sudo }nano .env     # SYMBOL_PORTAL_SENTRY_TOKEN=...
-  ${SUDO:+sudo }docker compose up -d symbol-portal
+  ${SUDO:+sudo }docker compose up -d --force-recreate symbol-portal
 Then run scripts/bootstrap-mobile-projects.py with SENTRY_URL=https://$DOMAIN
 DONE

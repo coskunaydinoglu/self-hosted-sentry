@@ -47,9 +47,12 @@ What it does, idempotently:
    settings and the Caddyfile.
 5. Runs `install.sh` non-interactively, starts the stack, creates the admin user
    with a generated password stored in `/opt/sentry-self-hosted/.admin-password`.
+6. Protects the Symbol Portal with basic auth; the generated `user:password` is in
+   `/opt/sentry-self-hosted/.portal-basic-auth`. The portal carries a
+   write-capable token, so do not remove this on an internet-facing host.
 
 Afterwards create a Personal Token in Sentry, set `SYMBOL_PORTAL_SENTRY_TOKEN` in
-the droplet's `.env`, `docker compose up -d symbol-portal`, and run
+the droplet's `.env`, `docker compose up -d --force-recreate symbol-portal`, and run
 `scripts/bootstrap-mobile-projects.py` against the HTTPS URL.
 
 Re-running the script later deploys new commits and upgrades Sentry through

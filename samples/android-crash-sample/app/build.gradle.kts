@@ -14,6 +14,10 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "1.0.1"
+        // Default: local self-hosted Sentry seen from the emulator (10.0.2.2 is the host).
+        manifestPlaceholders["sentryDsn"] = (project.findProperty("sentryDsn") as String?)
+            ?: "http://ddd4cec0a3a255cfb01d1edef64597ab@10.0.2.2:9000/3"
+        manifestPlaceholders["sentryEnvironment"] = (project.findProperty("sentryEnvironment") as String?) ?: "local-test"
     }
 
     buildTypes {

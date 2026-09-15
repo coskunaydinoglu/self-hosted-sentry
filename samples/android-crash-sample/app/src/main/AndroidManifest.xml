@@ -9,9 +9,9 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
 
-        <!-- Local self-hosted Sentry. From the emulator, 10.0.2.2 is the host machine. -->
-        <meta-data android:name="io.sentry.dsn" android:value="http://ddd4cec0a3a255cfb01d1edef64597ab@10.0.2.2:9000/3" />
-        <meta-data android:name="io.sentry.environment" android:value="local-test" />
+        <!-- Set with -PsentryDsn=... / -PsentryEnvironment=... (see app/build.gradle.kts). -->
+        <meta-data android:name="io.sentry.dsn" android:value="${sentryDsn}" />
+        <meta-data android:name="io.sentry.environment" android:value="${sentryEnvironment}" />
         <meta-data android:name="io.sentry.debug" android:value="true" />
         <meta-data android:name="io.sentry.anr.enable" android:value="true" />
         <meta-data android:name="io.sentry.breadcrumbs.user-interaction" android:value="true" />

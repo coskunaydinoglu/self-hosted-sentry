@@ -12,8 +12,12 @@ cp sentry.properties.example sentry.properties   # url, org, project, token
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 ```
 
-The DSN in `AndroidManifest.xml` points at `10.0.2.2:9000`, which is the host
-machine as seen from an emulator. For a physical phone use the host's LAN IP.
+The DSN defaults to the local instance at `10.0.2.2:9000` (the host as seen from
+an emulator). Point the app at another Sentry at build time:
+
+```bash
+./gradlew assembleRelease -PsentryDsn=https://<key>@sentry.example.com/<id> -PsentryEnvironment=demo
+```
 
 ## Two ways to test
 
