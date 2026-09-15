@@ -14,17 +14,42 @@ from typing import Any
 NATIVE_IMAGE_TYPES = {"macho", "elf", "pe", "wasm", "sourcemap"}
 
 
-def native_sources(sentry_internal_url: str, org: str, project: str, token: str, extra: list[dict] | None = None) -> list[dict]:
-    sources = [
-        {
-            "id": "sentry:project",
-            "type": "sentry",
-            "url": f"{sentry_internal_url.rstrip('/')}/api/0/projects/{org}/{project}/files/dsyms/",
-            "token": token,
-        }
-    ]
+def native_sources(
+    sentry_internal_url: str,
+    org: str,
+    project: str,
+    token: str,
+    extra: list[dict] | None = None,
+    version: str | None = None,
+) -> list[dict]:
+    """Sources for Symbolicator. `version` identifies the set of debug files currently
+    uploaded for the event's images: Symbolicator caches lookups (including "not found")
+    per source, so a new version makes it look again after a late upload, while an
+    unchanged set keeps reusing its cache."""
+    url = f"{sentry_internal_url.rstrip('/')}/api/0/projects/{org}/{project}/files/dsyms/"
+    source_id = "sentry:project"
+    if version:
+        source_id = f"sentry:project:{version}"
+        url = f"{url}?portal_version={version}"
+    sources = [{"id": source_id, "type": "sentry", "url": url, "token": token}]
     sources.extend(extra or [])
     return sources
+
+
+def debug_files_version(files_by_debug_id: dict[str, list[dict]]) -> str:
+    """Short, stable fingerprint of which debug files exist for the given debug ids."""
+    import hashlib
+
+    parts = []
+    for debug_id in sorted(files_by_debug_id):
+        ids = sorted(str(f.get("id") or f.get("uuid") or f.get("sha1") or "") for f in files_by_debug_id[debug_id])
+        parts.append(debug_id + "=" + ",".join(ids))
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
+
+
+def native_debug_ids(event: dict) -> list[str]:
+    images = (event.get("debug_meta") or {}).get("images") or []
+    return sorted({str(i["debug_id"]).lower() for i in images if i.get("type") in NATIVE_IMAGE_TYPES and i.get("debug_id")})
 
 
 def _hex(value: Any) -> str | None:

@@ -34,6 +34,9 @@ class FakeSentry:
             "hashAlgorithm": "sha1",
         }
         self.pending_polls = 1  # assemble returns "assembling" this many times before "ok"
+        # Simulates Sentry's cached assemble status after a debug file was deleted:
+        # assemble answers "ok" with the old dif, but no debug file exists.
+        self.stale_assemble: dict[str, dict] = {}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -63,8 +66,14 @@ class FakeSentry:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 names = zf.namelist()
             self.archives.append(names)
-            uuid = names[0].split("/")[-1].removesuffix(".txt")
-            dif = {"id": "9", "debugId": uuid, "uuid": uuid, "objectName": "proguard-mapping", "cpuName": "any"}
+            if names[0].startswith("proguard/"):
+                uuid = names[0].split("/")[-1].removesuffix(".txt")
+                dif = {"id": "9", "debugId": uuid, "uuid": uuid, "objectName": "proguard-mapping", "cpuName": "any"}
+            else:
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    content = zf.read(names[0])
+                uuid = "11111111-2222-3333-4444-" + hashlib.sha1(content).hexdigest()[:12]
+                dif = {"id": "10", "debugId": uuid, "uuid": uuid, "objectName": names[0], "cpuName": "arm64"}
             self.difs[uuid] = dif
             return httpx.Response(201, json=[dif])
         if m and request.method == "GET":
@@ -89,6 +98,9 @@ class FakeSentry:
     def _assemble(self, payload: dict) -> dict:
         out = {}
         for total_sha, spec in payload.items():
+            if total_sha in self.stale_assemble:
+                out[total_sha] = {"state": "ok", "missingChunks": [], "dif": self.stale_assemble[total_sha]}
+                continue
             missing = [c for c in spec["chunks"] if c not in self.chunks]
             if missing:
                 out[total_sha] = {"state": "not_found", "missingChunks": missing}

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
+import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -39,6 +41,36 @@ def _dif_summary(dif: dict | None) -> dict:
     }
 
 
+async def _stale_ok_fallback(
+    client: SentryClient, project: str, candidate: Candidate, dif: dict | None, workdir: Path | None
+) -> UploadResult | None:
+    """Sentry caches the assemble status per checksum for a while. If the debug file was
+    deleted meanwhile, assemble still answers "ok" but nothing exists. Detect that and
+    upload through the direct debug-files endpoint instead. Returns None when all is well."""
+    summary = _dif_summary(dif)
+    debug_id = summary.get("debug_id")
+    if not debug_id or await client.find_debug_files(project, debug_id):
+        return None
+    base = Path(workdir) if workdir else Path(tempfile.gettempdir())
+    archive = base / f"direct-{candidate.path.name}-{id(candidate)}.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(candidate.path, arcname=candidate.name)
+    try:
+        difs = await client.upload_dif_archive(project, archive)
+    finally:
+        archive.unlink(missing_ok=True)
+    if not difs:
+        return UploadResult(
+            candidate.source, candidate.name, candidate.kind, candidate.size, "error",
+            "Sentry dosyayı kabul etmedi (eski yükleme durumu önbellekte); birkaç dakika sonra tekrar deneyin",
+        )
+    note = "Yüklendi (Sentry'nin önbellekteki eski durumu atlatıldı, doğrudan yükleme kullanıldı)"
+    return UploadResult(
+        candidate.source, candidate.name, candidate.kind, candidate.size, "uploaded", note,
+        **_dif_summary(difs[0]), details=difs,
+    )
+
+
 async def upload_native(
     client: SentryClient,
     project: str,
@@ -46,6 +78,7 @@ async def upload_native(
     options: dict,
     poll_interval: float = 1.0,
     max_polls: int = 120,
+    workdir: Path | None = None,
 ) -> UploadResult:
     chunk_size = int(options.get("chunkSize") or 8 * 1024 * 1024)
     max_file_size = int(options.get("maxFileSize") or 0)
@@ -60,6 +93,9 @@ async def upload_native(
 
     state = (await client.assemble_difs(project, payload)).get(chunked.sha1, {})
     if state.get("state") == "ok":
+        fallback = await _stale_ok_fallback(client, project, candidate, state.get("dif"), workdir)
+        if fallback:
+            return fallback
         return UploadResult(
             candidate.source, candidate.name, candidate.kind, candidate.size, "exists",
             "Bu debug dosyası zaten yüklüydü", **_dif_summary(state.get("dif")),
@@ -154,7 +190,7 @@ async def upload_candidates(
                 continue
             if options is None:
                 options = await client.chunk_upload_options()
-            results.append(await upload_native(client, project, candidate, options))
+            results.append(await upload_native(client, project, candidate, options, workdir=workdir))
         except SentryError as exc:
             results.append(
                 UploadResult(candidate.source, candidate.name, candidate.kind, candidate.size, "error", str(exc))

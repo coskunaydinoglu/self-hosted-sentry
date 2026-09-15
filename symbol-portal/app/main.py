@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from .config import Settings, load_settings
 from .difs import UnsafeArchive, collect_candidates, safe_filename
 from .missing import collect_missing, parse_date, sort_entries
-from .resymbolicate import build_request, native_sources, summarize
+from .resymbolicate import build_request, debug_files_version, native_debug_ids, native_sources, summarize
 from .sentry_api import SentryClient, SentryError, SymbolicatorClient
 from .uploader import upload_candidates
 
@@ -199,7 +199,11 @@ def create_app(
                     "filters": {"filetypes": ["mach_code", "mach_debug", "elf_code", "elf_debug"]},
                 }
             )
-        sources = native_sources(settings.sentry_url, settings.sentry_org, project, settings.sentry_token, extra)
+        files = {debug_id: await client.find_debug_files(project, debug_id) for debug_id in native_debug_ids(event)}
+        sources = native_sources(
+            settings.sentry_url, settings.sentry_org, project, settings.sentry_token, extra,
+            version=debug_files_version(files) if files else None,
+        )
         request = build_request(event, sources)
         if request is None:
             raise HTTPException(

@@ -2,7 +2,14 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.resymbolicate import build_request, collect_stacktraces, native_sources, summarize
+from app.resymbolicate import (
+    build_request,
+    collect_stacktraces,
+    debug_files_version,
+    native_debug_ids,
+    native_sources,
+    summarize,
+)
 from app.sentry_api import SymbolicatorClient
 from tests.test_api import settings
 
@@ -95,6 +102,7 @@ def test_symbolicate_endpoint_polls_pending_requests(tmp_path, fake, client):
         if request.url.path == "/symbolicate":
             body = request.read()
             assert b'"sentry:internal-system-symbols"' in body and b'"token":"test-token"' in body
+            assert b'"id":"sentry:project:' in body and b"portal_version=" in body
             return httpx.Response(200, json={"status": "pending", "request_id": "req-1", "retry_after": 1})
         if request.url.path == "/requests/req-1":
             return httpx.Response(200, json=SYMBOLICATOR_RESPONSE)
@@ -126,3 +134,17 @@ def test_symbolicate_endpoint_rejects_non_native_event(tmp_path, fake, client):
         resp = tc.post("/api/projects/android-app/events/" + "cd" * 16 + "/symbolicate")
     assert resp.status_code == 422
     assert "ProGuard" in resp.json()["detail"]
+
+
+
+def test_source_version_changes_only_when_debug_files_change():
+    assert native_debug_ids(EVENT) == ["11111111-2222-3333-4444-555555555555", DEBUG_ID]
+    none_uploaded = debug_files_version({DEBUG_ID: []})
+    uploaded = debug_files_version({DEBUG_ID: [{"id": "7"}]})
+    assert none_uploaded != uploaded
+    assert uploaded == debug_files_version({DEBUG_ID: [{"id": "7"}]})
+    plain = native_sources("http://web:9000", "sentry", "ios-app", "tok")[0]
+    versioned = native_sources("http://web:9000", "sentry", "ios-app", "tok", version=uploaded)[0]
+    assert plain["id"] == "sentry:project" and "?" not in plain["url"]
+    assert versioned["id"] == f"sentry:project:{uploaded}"
+    assert versioned["url"].endswith(f"/files/dsyms/?portal_version={uploaded}")

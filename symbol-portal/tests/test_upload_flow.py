@@ -109,3 +109,35 @@ async def test_sentry_error_is_captured_per_file(tmp_path, fake, client):
     (result,) = await upload_candidates(client, "ios-app", collect_candidates("MyApp", binary, tmp_path), tmp_path)
     assert result.status == "error"
     assert "403" in result.message and "permission" in result.message
+
+
+
+@pytest.mark.asyncio
+async def test_stale_assemble_ok_falls_back_to_direct_upload(tmp_path, fake, client):
+    binary = tmp_path / "MyApp"
+    binary.write_bytes(MACHO)
+    candidates = collect_candidates("MyApp", binary, tmp_path)
+    total_sha = chunk_file(binary, 4).sha1
+    ghost_id = "11111111-2222-3333-4444-" + total_sha[:12]
+    # Uploaded earlier, then deleted in Sentry; assemble still remembers "ok".
+    fake.stale_assemble[total_sha] = {"id": "5", "debugId": ghost_id, "objectName": "MyApp", "cpuName": "arm64"}
+
+    (result,) = await upload_candidates(client, "ios-app", candidates, tmp_path)
+
+    assert result.status == "uploaded"
+    assert "doğrudan yükleme" in result.message
+    assert fake.archives == [["MyApp"]]
+    assert result.debug_id in fake.difs
+    assert not list(tmp_path.glob("direct-*.zip"))  # temporary archive cleaned up
+
+
+@pytest.mark.asyncio
+async def test_real_existing_file_still_reports_exists(tmp_path, fake, client):
+    binary = tmp_path / "MyApp"
+    binary.write_bytes(MACHO)
+    candidates = collect_candidates("MyApp", binary, tmp_path)
+    await upload_candidates(client, "ios-app", candidates, tmp_path)
+    fake.pending_polls = 0
+    (again,) = await upload_candidates(client, "ios-app", candidates, tmp_path)
+    assert again.status == "exists"
+    assert fake.archives == []
