@@ -75,6 +75,15 @@ say "Preparing the host (Docker, swap, firewall, Caddy)"
 remote "$SUDO bash -s" <<REMOTE
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Fresh droplets run cloud-init and unattended upgrades right after boot.
+command -v cloud-init >/dev/null 2>&1 && cloud-init status --wait >/dev/null 2>&1 || true
+for _ in \$(seq 1 120); do
+  if fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
+    echo "waiting for apt/dpkg lock ..."; sleep 5
+  else
+    break
+  fi
+done
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
@@ -173,10 +182,39 @@ CADDY
 systemctl reload caddy || systemctl restart caddy
 REMOTE
 
-say "Running install.sh on the droplet (first run takes 15-30 minutes)"
-remote "cd $REMOTE_DIR && $SUDO ./install.sh --skip-user-creation --no-report-self-hosted-issues --skip-commit-check --apply-automatic-config-updates" 2>&1 |
-  grep --line-buffered -E '^▶|^Success|rror|FAIL|Done|Docker images built|Finished|install log' || true
-remote "cd $REMOTE_DIR && ls -t sentry_install_log*.txt 2>/dev/null | head -1 | xargs -r tail -3"
+say "Running install.sh on the droplet (first run takes 20-40 minutes)"
+# Detached from this SSH session so a dropped connection cannot kill the install.
+# Re-running deploy.sh while it is still running just waits for it.
+remote "$SUDO bash -s" <<REMOTE
+set -euo pipefail
+cd $REMOTE_DIR
+if [ -f .deploy-install.pid ] && kill -0 "\$(cat .deploy-install.pid)" 2>/dev/null; then
+  echo "install.sh already running (pid \$(cat .deploy-install.pid)), waiting for it"
+else
+  rm -f .deploy-install.exit
+  setsid nohup bash -c './install.sh --skip-user-creation --no-report-self-hosted-issues --skip-commit-check --apply-automatic-config-updates > .deploy-install.log 2>&1; echo \$? > .deploy-install.exit' </dev/null >/dev/null 2>&1 &
+  echo \$! > .deploy-install.pid
+  echo "install.sh started (pid \$!)"
+fi
+REMOTE
+last=""
+while :; do
+  status=$(remote "cd $REMOTE_DIR && if [ -f .deploy-install.exit ]; then echo EXIT:\$(cat .deploy-install.exit); else grep -E '^(▶ |[A-Z][a-z]+ing )' .deploy-install.log 2>/dev/null | tail -1; fi" || echo "ssh-retry")
+  if [[ "$status" == EXIT:* ]]; then
+    code="${status#EXIT:}"
+    echo "install.sh finished with exit code $code"
+    if [[ "$code" != 0 ]]; then
+      remote "tail -40 $REMOTE_DIR/.deploy-install.log" >&2
+      exit 1
+    fi
+    break
+  fi
+  if [[ -n "$status" && "$status" != "$last" && "$status" != ssh-retry ]]; then
+    echo "  $status"
+    last="$status"
+  fi
+  sleep 30
+done
 
 say "Starting services"
 remote "cd $REMOTE_DIR && $SUDO docker compose up -d --wait --wait-timeout 900 2>&1 | tail -3" || true
