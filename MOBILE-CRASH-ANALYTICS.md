@@ -12,7 +12,8 @@ additions live in their own directories and are wired in through
 | OS frames (UIKit, libsystem, libart) never symbolicated     | [`symbol-server/`](symbol-server/README.md) + `SENTRY_BUILTIN_SOURCES` block in `sentry/sentry.conf.example.py` |
 | Dashboard too thin, 5-second auto-refresh                   | Sentry Issues / Discover / Dashboards; real-time updates are an opt-in toggle                          |
 | Stack traces blocked by WAF, "do we see 100%?"              | [`ingest-edge/`](ingest-edge/README.md) puts a proxy-mode Relay on its own hostname in the DMZ with a narrow WAF policy; [`ingest-canary/`](ingest-canary/README.md) measures delivery; Release Health sessions give an independent crash count |
-| Symbols uploaded after the crash leave old events raw        | Symbol Portal › *Yeniden Sembolikleştir* resolves a stored event through Symbolicator on demand                |
+| Symbols uploaded after the crash leave old events raw        | Symbol Portal › *Yeniden Sembolikleştir* resolves a stored event through Symbolicator on demand: native (iOS, NDK) and R8/ProGuard Android |
+| Version adoption and crash-free % per release               | Release Health, `feature-complete` profile; demo traffic from [`session-generator/`](session-generator/README.md) |
 
 ## Roadmap status
 
@@ -24,6 +25,10 @@ additions live in their own directories and are wired in through
 - [x] Faz 2: on-demand re-symbolication of stored events in the portal
 - [x] Faz 3: `scripts/bootstrap-mobile-projects.py` creates team, projects, issue alerts, canary metric alert and enables the OS symbol source
 - [x] Post-install verification: `scripts/mobile-smoke-test.sh`
+- [x] Demo server on DigitalOcean (`deploy/digitalocean/`), HTTPS, portal behind basic auth
+- [x] Re-symbolication of old R8/ProGuard Android crashes (Symbolicator `/symbolicate-jvm`)
+- [x] Release Health demo data: session generator with adoption curves and a crash regression
+- [x] Session Replay on errors in the Android sample
 - [ ] Faz 0: pin images to a CalVer release, HTTPS, mail, S3 filestore, backups, statsd
 - [ ] Faz 1: deploy `ingest-edge/` on the DMZ host, DNS + certificate, WAF policy applied
 - [ ] Faz 3: Teams/Slack/Jira integrations, alert rules, mobile dashboard template
@@ -46,8 +51,15 @@ additions live in their own directories and are wired in through
   Internal for production. Scopes: org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write.
   Organization Tokens (fixed `org:ci` scope) only cover uploads. Put `/symbols/`
   behind the same SSO/VPN as Sentry.
-- `errors-only` profile disables the metrics consumers, which Release Health
-  (crash-free sessions/users) needs. Keep `feature-complete` for that metric.
+- `errors-only` profile disables the metrics and replay consumers, so version
+  adoption, crash-free sessions/users and Session Replay do not work there. Keep
+  `feature-complete` (4 vCPU / 16 GB minimum) when those are needed.
+- Relay drops sessions older than about five days: Release Health history can be
+  backfilled at most ~4.5 days, the rest has to accumulate in real time.
+- The stack tracks Sentry's `nightly` images; keep this fork merged with
+  upstream `getsentry/self-hosted` master (or pin both to a release such as
+  26.9.0), otherwise compose and images drift apart (e.g. the removed
+  `ingest-generic-metrics` consumer crash-looped).
 - Existing installs do not pick up changes to `*.example.*` files automatically:
   copy the `connect_to_reserved_ips` line into `symbolicator/config.yml` and the
   `SENTRY_BUILTIN_SOURCES` block into `sentry/sentry.conf.py` by hand.

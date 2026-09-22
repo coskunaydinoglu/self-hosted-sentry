@@ -17,6 +17,10 @@
         <meta-data android:name="io.sentry.breadcrumbs.user-interaction" android:value="true" />
         <!-- Release Health: crash-free sessions/users. -->
         <meta-data android:name="io.sentry.auto-session-tracking.enable" android:value="true" />
+        <!-- Session Replay: record every session that ends in an error or crash, 10 % of the rest.
+             Text and images are masked by default, so no personal data leaves the device. -->
+        <meta-data android:name="io.sentry.session-replay.on-error-sample-rate" android:value="1.0" />
+        <meta-data android:name="io.sentry.session-replay.session-sample-rate" android:value="0.1" />
 
         <activity
             android:name=".MainActivity"
