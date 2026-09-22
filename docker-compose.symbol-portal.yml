@@ -7,6 +7,7 @@
 #                  (symsorter layout), registered in sentry.conf.py as a built-in source
 #   ingest-canary  sends synthetic crashes through the public ingest path and
 #                  verifies they arrive, to measure WAF/proxy losses
+#   session-generator  demo-only Release Health traffic (adoption, crash-free rates)
 #
 # Requires SYMBOL_PORTAL_SENTRY_TOKEN: a Personal Token or Internal Integration token
 # with org:read, org:write, team:read, team:write, project:read, project:write, project:releases, event:read, alerts:read, alerts:write
@@ -77,6 +78,29 @@ services:
     # Without a DSN the canary exits with a clear message; keep restart from hammering it.
     profiles:
       - ingest-canary
+  session-generator:
+    build:
+      context: ./session-generator
+    image: sentry-session-generator-local
+    restart: unless-stopped
+    environment:
+      SYMBOL_PORTAL_SENTRY_TOKEN:
+      SYMBOL_PORTAL_SENTRY_ORG: "${SYMBOL_PORTAL_SENTRY_ORG:-sentry}"
+      SESSION_GENERATOR_API_URL: "http://web:9000"
+      SESSION_GENERATOR_INGEST_URL: "http://nginx"
+      SESSION_GENERATOR_ENVIRONMENT: "${SESSION_GENERATOR_ENVIRONMENT:-production}"
+      SESSION_GENERATOR_INTERVAL: "${SESSION_GENERATOR_INTERVAL:-600}"
+      SESSION_GENERATOR_BACKFILL_HOURS: "${SESSION_GENERATOR_BACKFILL_HOURS:-108}"
+    volumes:
+      - "sentry-session-generator:/data"
+    depends_on:
+      web:
+        condition: service_healthy
+      nginx:
+        condition: service_started
+    # Demo data only: enable explicitly (see session-generator/README.md).
+    profiles:
+      - session-generator
   nginx:
     depends_on:
       symbol-portal:
@@ -84,3 +108,5 @@ services:
 volumes:
   # Scratch space for uploads being unpacked; safe to delete.
   sentry-symbol-portal:
+  # Session generator state (story anchor, last window sent); delete to restart the story.
+  sentry-session-generator:

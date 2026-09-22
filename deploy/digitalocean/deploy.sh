@@ -140,7 +140,9 @@ cd $REMOTE_DIR
 rm -f .env.committed
 setvar() { if grep -q "^\$1=" .env; then sed -i "s|^\$1=.*|\$1=\$2|" .env; else echo "\$1=\$2" >> .env; fi; }
 setvar SENTRY_BIND 127.0.0.1:9000
-setvar COMPOSE_PROFILES $PROFILE
+# Switch the base profile but keep add-on profiles (e.g. ingest-canary, session-generator).
+extras=\$(grep '^COMPOSE_PROFILES=' .env | cut -d= -f2- | tr ',' '\n' | grep -vxE 'feature-complete|errors-only|' | paste -sd, - || true)
+setvar COMPOSE_PROFILES "$PROFILE\${extras:+,\$extras}"
 # The portal holds a write-capable token and is reachable from the internet here:
 # protect it with basic auth (credentials kept in .portal-basic-auth, root only).
 if [ ! -s .portal-basic-auth ]; then
