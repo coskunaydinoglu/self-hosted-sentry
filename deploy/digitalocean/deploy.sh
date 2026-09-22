@@ -128,6 +128,7 @@ rsync -az --delete \
   --exclude 'samples/**/build/' --exclude 'samples/**/.gradle/' --exclude 'samples/**/.kotlin/' \
   --exclude 'samples/**/local.properties' --exclude 'samples/**/sentry.properties' \
   --exclude 'sentry_install_log*.txt' --exclude docker-compose.override.yml \
+  --exclude /.admin-password --exclude /.portal-basic-auth --exclude '/.deploy-install.*' \
   "$REPO_ROOT"/ "$TARGET:$REMOTE_DIR/"
 # The committed .env holds safe defaults only; the local one may carry tokens.
 git -C "$REPO_ROOT" show HEAD:.env | remote "cat > $REMOTE_DIR/.env.committed"
@@ -145,10 +146,13 @@ extras=\$(grep '^COMPOSE_PROFILES=' .env | cut -d= -f2- | tr ',' '\n' | grep -vx
 setvar COMPOSE_PROFILES "$PROFILE\${extras:+,\$extras}"
 # The portal holds a write-capable token and is reachable from the internet here:
 # protect it with basic auth (credentials kept in .portal-basic-auth, root only).
-if [ ! -s .portal-basic-auth ]; then
-  (umask 077; echo "demo:\$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)" > .portal-basic-auth)
+# .env is the source of truth; the file is a readable copy for the operator.
+current=\$(grep '^SYMBOL_PORTAL_BASIC_AUTH=' .env | cut -d= -f2- || true)
+if [ -z "\$current" ]; then
+  current="demo:\$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
+  setvar SYMBOL_PORTAL_BASIC_AUTH "\$current"
 fi
-grep -q '^SYMBOL_PORTAL_BASIC_AUTH=.\+' .env || setvar SYMBOL_PORTAL_BASIC_AUTH "\$(cat .portal-basic-auth)"
+(umask 077; echo "\$current" > .portal-basic-auth)
 [ -f sentry/config.yml ] || cp sentry/config.example.yml sentry/config.yml
 [ -f sentry/sentry.conf.py ] || cp sentry/sentry.conf.example.py sentry/sentry.conf.py
 [ -f symbolicator/config.yml ] || cp symbolicator/config.example.yml symbolicator/config.yml
@@ -240,8 +244,15 @@ set -euo pipefail
 cd $REMOTE_DIR
 if [ ! -f $PASSWORD_FILE ]; then
   umask 077
-  openssl rand -base64 18 | tr -d '/+=' | cut -c1-20 > $PASSWORD_FILE
-  docker compose run --rm -T web createuser --email "$EMAIL" --password "\$(cat $PASSWORD_FILE)" --superuser --no-input >/dev/null 2>&1 || true
+  pw=\$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)
+  # Only record the password if this run really created the user; an existing
+  # admin keeps the password its owner set.
+  if docker compose run --rm -T web createuser --email "$EMAIL" --password "\$pw" --superuser --no-input >/dev/null 2>&1; then
+    echo "\$pw" > $PASSWORD_FILE
+    echo "admin user created"
+  else
+    echo "admin user already exists (password unchanged)"
+  fi
 fi
 REMOTE
 
