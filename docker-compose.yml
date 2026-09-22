@@ -161,7 +161,7 @@ services:
   postgres:
     <<: *restart_policy
     # Using the same postgres version as Sentry dev for consistency purposes
-    image: "postgres:14.24-bookworm"
+    image: "postgres:14.24-trixie"
     healthcheck:
       <<: *healthcheck_defaults
       # Using default user "postgres" from sentry/sentry.conf.example.py or value of POSTGRES_USER if provided
@@ -194,7 +194,7 @@ services:
 
   kafka:
     <<: *restart_policy
-    image: "confluentinc/cp-kafka:7.6.13"
+    image: "confluentinc/cp-kafka:7.6.14"
     environment:
       # https://docs.confluent.io/platform/current/installation/docker/config-reference.html#cp-kakfa-example
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -396,20 +396,6 @@ services:
       <<: *file_healthcheck_defaults
     profiles:
       - feature-complete
-  snuba-subscription-consumer-generic-metrics-counters:
-    <<: *snuba_defaults
-    command: subscriptions-scheduler-executor --dataset generic_metrics --entity=generic_metrics_counters --auto-offset-reset=latest --no-strict-offset-reset --consumer-group=snuba-generic-metrics-counters-subscriptions-schedulers --followed-consumer-group=snuba-gen-metrics-counters-consumers --schedule-ttl=60 --stale-threshold-seconds=900 --health-check-file /tmp/health.txt
-    healthcheck:
-      <<: *file_healthcheck_defaults
-    profiles:
-      - feature-complete
-  snuba-generic-metrics-counters-consumer:
-    <<: *snuba_defaults
-    command: rust-consumer --storage generic_metrics_counters_raw --consumer-group snuba-gen-metrics-counters-consumers --auto-offset-reset=latest --max-batch-time-ms 750 --no-strict-offset-reset --health-check-file /tmp/health.txt --max-poll-interval-ms ${SENTRY_KAFKA_MAX_POLL_INTERVAL_MS:-300000}
-    healthcheck:
-      <<: *file_healthcheck_defaults
-    profiles:
-      - feature-complete
   snuba-profiling-profiles-consumer:
     <<: *snuba_defaults
     command: rust-consumer --storage profiles --consumer-group snuba-consumers --auto-offset-reset=latest --max-batch-time-ms 1000 --no-strict-offset-reset --health-check-file /tmp/health.txt --max-poll-interval-ms ${SENTRY_KAFKA_MAX_POLL_INTERVAL_MS:-300000}
@@ -517,13 +503,6 @@ services:
       <<: *file_healthcheck_defaults
     profiles:
       - feature-complete
-  generic-metrics-consumer:
-    <<: *sentry_defaults
-    command: run consumer ingest-generic-metrics --consumer-group generic-metrics-consumer --auto-offset-reset=earliest --no-strict-offset-reset --healthcheck-file-path /tmp/health.txt --max-poll-interval-ms ${SENTRY_KAFKA_MAX_POLL_INTERVAL_MS:-300000}
-    healthcheck:
-      <<: *file_healthcheck_defaults
-    profiles:
-      - feature-complete
   ingest-occurrences:
     <<: *sentry_defaults
     command: run consumer ingest-occurrences --consumer-group ingest-occurrences --auto-offset-reset=earliest --no-strict-offset-reset --healthcheck-file-path /tmp/health.txt --max-poll-interval-ms ${SENTRY_KAFKA_MAX_POLL_INTERVAL_MS:-300000}
@@ -600,7 +579,7 @@ services:
     <<: *restart_policy
     ports:
       - "$SENTRY_BIND:80/tcp"
-    image: "nginx:1.31.5-alpine"
+    image: "nginx:1.31.6-alpine"
     volumes:
       - type: bind
         read_only: true
