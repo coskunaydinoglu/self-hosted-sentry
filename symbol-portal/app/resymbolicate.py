@@ -1,5 +1,9 @@
 """On-demand re-symbolication of a stored event, Countly's "Symbolicate" button.
 
+Native events (iOS/macOS, Android NDK) go to Symbolicator's /symbolicate endpoint,
+Java/Kotlin events obfuscated by R8/ProGuard to /symbolicate-jvm. Either way the
+stored event is not modified; the portal only shows the resolved stack trace.
+
 Sentry symbolicates at ingest and does not touch old events again. When symbols
 arrive late we can still show the developer a resolved stack trace: take the raw
 event JSON, hand its native frames and debug images to Symbolicator (already
@@ -170,10 +174,134 @@ def summarize(event: dict, response: dict) -> dict:
     total = sum(len(t["frames"]) for t in traces)
     resolved = sum(1 for t in traces for f in t["frames"] if f["status"] == "symbolicated")
     return {
+        "kind": "native",
         "status": response.get("status"),
         "stacktraces": traces,
         "modules": modules,
         "frames_total": total,
         "frames_symbolicated": resolved,
         "missing_debug_ids": sorted({m["debug_id"] for m in modules if m["debug_status"] == "missing" and m["debug_id"]}),
+    }
+
+
+# -- JVM (R8 / ProGuard) ------------------------------------------------------------------
+
+JVM_FRAME_FIELDS = ("platform", "abs_path", "lineno", "function", "module", "filename", "in_app")
+
+
+def proguard_uuids(event: dict) -> list[str]:
+    images = (event.get("debug_meta") or {}).get("images") or []
+    return sorted({str(i["uuid"]).lower() for i in images if i.get("type") == "proguard" and i.get("uuid")})
+
+
+def release_package(event: dict) -> str | None:
+    release = event.get("release")
+    if isinstance(release, dict):
+        release = release.get("version")
+    if not release or "@" not in str(release):
+        return None
+    return str(release).split("@", 1)[0]
+
+
+def _jvm_stacktraces(event: dict) -> list[dict]:
+    """Exception stack traces plus other threads', in the order Sentry stores them (caller first)."""
+    found = []
+    for i, exc in enumerate((event.get("exception") or {}).get("values") or []):
+        stacktrace = exc.get("raw_stacktrace") or exc.get("stacktrace") or {}
+        if stacktrace.get("frames"):
+            label = f"exception {i}: {exc.get('type') or ''} {exc.get('value') or ''}".strip()
+            found.append({"label": label, "frames": stacktrace["frames"], "exception": exc})
+    for thread in (event.get("threads") or {}).get("values") or []:
+        if thread.get("crashed") and found:
+            continue
+        stacktrace = thread.get("raw_stacktrace") or thread.get("stacktrace") or {}
+        if stacktrace.get("frames"):
+            label = f"thread {thread.get('id')}" + (f" {thread.get('name')}" if thread.get("name") else "")
+            found.append({"label": label, "frames": stacktrace["frames"], "exception": None})
+    return found
+
+
+def build_jvm_request(event: dict, sources: list[dict]) -> dict | None:
+    """Symbolicator /symbolicate-jvm payload, or None when there is nothing to deobfuscate."""
+    modules = [{"uuid": uuid, "type": "proguard"} for uuid in proguard_uuids(event)]
+    traces = _jvm_stacktraces(event)
+    if not modules or not traces:
+        return None
+    request: dict[str, Any] = {
+        "platform": "java",
+        "sources": sources,
+        "exceptions": [
+            {"type": t["exception"].get("type"), "module": t["exception"].get("module")}
+            for t in traces if t["exception"] and t["exception"].get("type") and t["exception"].get("module")
+        ],
+        "stacktraces": [
+            {"frames": [{"index": i, **{k: f[k] for k in JVM_FRAME_FIELDS if f.get(k) is not None}} for i, f in enumerate(t["frames"])]}
+            for t in traces
+        ],
+        "modules": modules,
+        "classes": [],
+        "options": {"apply_source_context": True, "frame_order": "caller_first"},
+    }
+    package = release_package(event)
+    if package:
+        request["release_package"] = package
+    return request
+
+
+def _frame_text(frame: dict) -> str:
+    module = frame.get("module") or ""
+    function = frame.get("function") or "?"
+    where = frame.get("filename") or frame.get("abs_path") or ""
+    line = frame.get("lineno")
+    name = f"{module}.{function}" if module else function
+    return f"{name}({where}{':' + str(line) if line else ''})"
+
+
+def summarize_jvm(event: dict, response: dict) -> dict:
+    """Resolved JVM frames next to the obfuscated originals, callee first like the Sentry UI."""
+    traces_in = _jvm_stacktraces(event)
+    package = release_package(event)
+    traces = []
+    for i, trace in enumerate(response.get("stacktraces") or []):
+        originals = traces_in[i]["frames"] if i < len(traces_in) else []
+        frames = []
+        for frame in trace.get("frames") or []:
+            index = frame.get("index")
+            original = originals[index] if isinstance(index, int) and 0 <= index < len(originals) else {}
+            changed = _frame_text(frame) != _frame_text(original)
+            module = frame.get("module") or ""
+            frames.append(
+                {
+                    "status": "symbolicated" if changed else "unchanged",
+                    "function": f"{module}.{frame.get('function')}" if module else frame.get("function"),
+                    "filename": frame.get("filename") or frame.get("abs_path"),
+                    "lineno": frame.get("lineno"),
+                    "package": None,
+                    "in_app": bool(package and module.startswith(package)),
+                    "instruction_addr": None,
+                    "original": _frame_text(original) if changed and original else None,
+                    "context_line": (frame.get("context_line") or "").strip() or None,
+                }
+            )
+        frames.reverse()  # most recent call first, as Sentry shows it
+        label = traces_in[i]["label"] if i < len(traces_in) else f"stacktrace {i}"
+        traces.append({"label": label, "frames": frames})
+
+    missing = sorted({str(e.get("uuid")).lower() for e in response.get("errors") or [] if e.get("uuid")})
+    known = set(proguard_uuids(event))
+    modules = [
+        {"debug_id": uuid, "code_file": "ProGuard / R8 mapping", "debug_status": "missing" if uuid in missing else "found", "arch": None}
+        for uuid in sorted(known | set(missing))
+    ]
+    total = sum(len(t["frames"]) for t in traces)
+    resolved = sum(1 for t in traces for f in t["frames"] if f["status"] == "symbolicated")
+    return {
+        "kind": "jvm",
+        "status": response.get("status"),
+        "stacktraces": traces,
+        "modules": modules,
+        "frames_total": total,
+        "frames_symbolicated": resolved,
+        "missing_debug_ids": missing,
+        "exceptions": response.get("exceptions") or [],
     }

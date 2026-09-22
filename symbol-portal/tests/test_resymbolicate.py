@@ -148,3 +148,91 @@ def test_source_version_changes_only_when_debug_files_change():
     assert plain["id"] == "sentry:project" and "?" not in plain["url"]
     assert versioned["id"] == f"sentry:project:{uploaded}"
     assert versioned["url"].endswith(f"/files/dsyms/?portal_version={uploaded}")
+
+
+# -- R8 / ProGuard -------------------------------------------------------------------------
+
+from app.resymbolicate import build_jvm_request, proguard_uuids, release_package, summarize_jvm  # noqa: E402
+
+MAPPING_UUID = "099c1687-6259-3d60-809f-a41161247893"
+JVM_EVENT = {
+    "platform": "java",
+    "release": "com.example.crashsample@1.0.1+2",
+    "debug_meta": {"images": [{"uuid": MAPPING_UUID.upper(), "type": "proguard"}, {"debug_id": "x", "type": "jvm"}]},
+    "exception": {"values": [{
+        "type": "IllegalStateException", "module": "java.lang", "value": "Unknown coupon code: BROKEN",
+        "raw_stacktrace": {"frames": [
+            {"function": "main", "module": "android.app.ActivityThread", "filename": "ActivityThread.java", "lineno": 7872, "in_app": False},
+            {"function": "run", "module": "androidx.activity.b", "filename": "SourceFile", "abs_path": "SourceFile", "lineno": 79},
+        ]},
+    }]},
+}
+JVM_RESPONSE = {
+    "status": "completed",
+    "errors": [],
+    "exceptions": [{"type": "IllegalStateException", "module": "java.lang"}],
+    "stacktraces": [{"frames": [
+        {"index": 0, "function": "main", "module": "android.app.ActivityThread", "filename": "ActivityThread.java", "lineno": 7872},
+        {"index": 1, "function": "runAction", "module": "com.example.crashsample.MainActivity", "filename": "MainActivity.kt", "lineno": 51},
+        {"index": 1, "function": "discountFor", "module": "com.example.crashsample.OrderProcessor", "filename": "OrderProcessor.kt", "lineno": 27,
+         "context_line": '        else -> throw IllegalStateException("Unknown coupon code: $coupon")'},
+    ]}],
+}
+
+
+def test_build_jvm_request_uses_raw_frames_and_release_package():
+    assert proguard_uuids(JVM_EVENT) == [MAPPING_UUID]
+    assert release_package(JVM_EVENT) == "com.example.crashsample"
+    req = build_jvm_request(JVM_EVENT, [{"id": "sentry:project"}])
+    assert req["modules"] == [{"uuid": MAPPING_UUID, "type": "proguard"}]
+    assert req["exceptions"] == [{"type": "IllegalStateException", "module": "java.lang"}]
+    assert req["stacktraces"][0]["frames"][1] == {
+        "index": 1, "function": "run", "module": "androidx.activity.b", "filename": "SourceFile", "abs_path": "SourceFile", "lineno": 79,
+    }
+    assert req["release_package"] == "com.example.crashsample"
+    assert req["options"]["frame_order"] == "caller_first"
+    assert build_jvm_request({"exception": {"values": []}}, []) is None
+    assert build_jvm_request({**JVM_EVENT, "debug_meta": {"images": []}}, []) is None
+
+
+def test_summarize_jvm_expands_inlined_frames_and_keeps_originals():
+    summary = summarize_jvm(JVM_EVENT, JVM_RESPONSE)
+    assert summary["kind"] == "jvm" and summary["missing_debug_ids"] == []
+    frames = summary["stacktraces"][0]["frames"]
+    assert [f["function"] for f in frames] == [
+        "com.example.crashsample.OrderProcessor.discountFor",
+        "com.example.crashsample.MainActivity.runAction",
+        "android.app.ActivityThread.main",
+    ]
+    assert frames[0]["status"] == "symbolicated" and frames[0]["in_app"] is True
+    assert frames[0]["original"] == "androidx.activity.b.run(SourceFile:79)"
+    assert "throw IllegalStateException" in frames[0]["context_line"]
+    assert frames[2]["status"] == "unchanged" and frames[2]["original"] is None
+    assert summary["frames_symbolicated"] == 2 and summary["frames_total"] == 3
+
+
+def test_summarize_jvm_reports_missing_mapping():
+    summary = summarize_jvm(JVM_EVENT, {**JVM_RESPONSE, "errors": [{"uuid": MAPPING_UUID, "type": "missing"}]})
+    assert summary["missing_debug_ids"] == [MAPPING_UUID]
+    assert summary["modules"][0]["debug_status"] == "missing"
+
+
+def test_symbolicate_endpoint_uses_jvm_path_for_proguard_events(tmp_path, fake, client):
+    calls = []
+
+    def symbolicator(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        body = request.read()
+        assert b'"type":"proguard"' in body and b"portal_version=" in body
+        return httpx.Response(200, json=JVM_RESPONSE)
+
+    original = fake.handler
+    fake.handler = lambda r: httpx.Response(200, json=JVM_EVENT) if r.url.path.endswith("/json/") else original(r)
+    sym = SymbolicatorClient("http://symbolicator:3021", client=httpx.AsyncClient(transport=httpx.MockTransport(symbolicator)))
+    app = create_app(settings(tmp_path), client=client, symbolicator=sym)
+    with TestClient(app) as tc:
+        resp = tc.post("/api/projects/android-app/events/" + "ef" * 16 + "/symbolicate")
+    assert resp.status_code == 200, resp.text
+    assert calls == ["/symbolicate-jvm"]
+    data = resp.json()
+    assert data["kind"] == "jvm" and data["frames_symbolicated"] == 2 and data["stored_event_unchanged"] is True

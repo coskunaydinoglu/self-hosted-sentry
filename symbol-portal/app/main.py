@@ -18,7 +18,16 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from .config import Settings, load_settings
 from .difs import UnsafeArchive, collect_candidates, safe_filename
 from .missing import collect_missing, parse_date, sort_entries
-from .resymbolicate import build_request, debug_files_version, native_debug_ids, native_sources, summarize
+from .resymbolicate import (
+    build_jvm_request,
+    build_request,
+    debug_files_version,
+    native_debug_ids,
+    native_sources,
+    proguard_uuids,
+    summarize,
+    summarize_jvm,
+)
 from .sentry_api import SentryClient, SentryError, SymbolicatorClient
 from .uploader import upload_candidates
 
@@ -185,9 +194,13 @@ def create_app(
 
     @app.post("/api/projects/{project}/events/{event_id}/symbolicate")
     async def symbolicate_event(project: str, event_id: str):
-        """Re-symbolicate a stored native event on demand; the stored event is left untouched."""
+        """Re-symbolicate a stored native or R8/ProGuard event on demand; the stored event is left untouched."""
         client = get_client()
         event = await client.get_event_json(project, event_id)
+        ids = native_debug_ids(event) + proguard_uuids(event)
+        files = {debug_id: await client.find_debug_files(project, debug_id) for debug_id in ids}
+        version = debug_files_version(files) if files else None
+
         extra = []
         if settings.system_symbols_url:
             extra.append(
@@ -199,20 +212,21 @@ def create_app(
                     "filters": {"filetypes": ["mach_code", "mach_debug", "elf_code", "elf_debug"]},
                 }
             )
-        files = {debug_id: await client.find_debug_files(project, debug_id) for debug_id in native_debug_ids(event)}
-        sources = native_sources(
-            settings.sentry_url, settings.sentry_org, project, settings.sentry_token, extra,
-            version=debug_files_version(files) if files else None,
+        native = build_request(
+            event, native_sources(settings.sentry_url, settings.sentry_org, project, settings.sentry_token, extra, version=version)
         )
-        request = build_request(event, sources)
-        if request is None:
-            raise HTTPException(
-                422,
-                "Bu event'te native stack trace veya debug image yok. Yalnızca iOS/macOS ve Android NDK "
-                "crash'leri yeniden sembolikleştirilebilir; ProGuard için mapping yüklendikten sonra yeni event bekleyin.",
+        if native is not None:
+            summary = summarize(event, await get_symbolicator().symbolicate(native))
+        else:
+            jvm = build_jvm_request(
+                event, native_sources(settings.sentry_url, settings.sentry_org, project, settings.sentry_token, version=version)
             )
-        response = await get_symbolicator().symbolicate(request)
-        summary = summarize(event, response)
+            if jvm is None:
+                raise HTTPException(
+                    422,
+                    "Bu event'te çözülecek bir şey yok: native debug image veya ProGuard/R8 mapping referansı içermiyor.",
+                )
+            summary = summarize_jvm(event, await get_symbolicator().symbolicate(jvm, endpoint="symbolicate-jvm"))
         summary["event_id"] = event_id
         summary["project"] = project
         summary["stored_event_unchanged"] = True

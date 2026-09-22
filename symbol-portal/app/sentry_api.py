@@ -170,9 +170,10 @@ class SymbolicatorClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def symbolicate(self, request: dict, timeout: int = 20, max_polls: int = 30) -> dict:
+    async def symbolicate(self, request: dict, timeout: int = 20, max_polls: int = 30, endpoint: str = "symbolicate") -> dict:
+        """POST to /symbolicate (native) or /symbolicate-jvm (ProGuard) and wait for the result."""
         try:
-            resp = await self._client.post(f"{self.base_url}/symbolicate", params={"timeout": timeout}, json=request)
+            resp = await self._client.post(f"{self.base_url}/{endpoint}", params={"timeout": timeout}, json=request)
             resp.raise_for_status()
             body = resp.json()
             polls = 0
